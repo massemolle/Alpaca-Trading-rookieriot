@@ -1,4 +1,3 @@
 {
-  "framework": "nextjs",
-  "$comment": "build trigger"
+  "framework": "nextjs"
 }
