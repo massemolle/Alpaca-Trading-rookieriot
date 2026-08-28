@@ -1,0 +1,448 @@
+"""
+Enhanced Signals — Combina múltiples fuentes de datos para generar señales.
+
+Fuentes:
+1. Señales técnicas (RSI, MACD, etc.)
+2. Trend filter (EMA50/200, ADX)
+3. Insider trades (SEC EDGAR)
+4. Reddit sentiment (opcional, requiere API key)
+5. Fundamentals (yfinance)
+6. Institutional holdings (yfinance)
+
+La señal final es un consenso ponderado de todas las fuentes.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from signals.swing import Signal, generate_swing_signals
+from signals.trend_filter import TrendFilter
+from alternative.insider_trades import InsiderTrades, create_insider_trades
+from alternative.reddit_sentiment import RedditSentiment, create_reddit_sentiment
+from alternative.support_resistance import DivergenceDetector
+from alternative.institutional_holdings import InstitutionalHoldings, create_institutional_holdings
+
+
+@dataclass
+class EnhancedSignal:
+    """Enhanced signal combining multiple data sources."""
+    ticker: str
+    direction: str  # "long", "short", "neutral"
+    strength: float  # 0-1, overall signal strength
+    sources: dict  # Individual source signals
+    confidence: float  # 0-1, how confident we are in the signal
+    reasoning: list[str] = field(default_factory=list)
+
+
+class EnhancedSignalGenerator:
+    """
+    Generates trading signals by combining multiple data sources.
+
+    Weights:
+    - Technical signals: 30%
+    - Trend filter: 20%
+    - Insider trades: 15%
+    - Reddit sentiment: 5% (optional)
+    - Fundamentals: 15% (optional)
+    - Institutional holdings: 15% (optional)
+    """
+
+    def __init__(
+        self,
+        use_insider: bool = True,
+        use_reddit: bool = True,
+        use_fundamentals: bool = True,
+        use_institutional: bool = True,
+        weights: Optional[dict] = None,
+        cached_reddit: Optional[dict] = None,
+    ):
+        """
+        Initialize enhanced signal generator.
+
+        Args:
+            use_insider: Whether to use insider trading data
+            use_reddit: Whether to use Reddit sentiment data
+            use_fundamentals: Whether to use fundamental analysis
+            use_institutional: Whether to use institutional holdings data
+            weights: Custom weights for each source
+            cached_reddit: Pre-fetched Reddit signals {ticker: signal_dict}
+        """
+        self.insider = create_insider_trades() if use_insider else None
+        self.reddit = create_reddit_sentiment() if use_reddit else None
+        self.fundamentals = create_fundamentals_analyzer() if use_fundamentals else None
+        self.institutional = create_institutional_holdings() if use_institutional else None
+        self.trend_filter = TrendFilter()
+        self.cached_reddit = cached_reddit or {}
+
+        # Default weights
+        self.weights = weights or {
+            "technical": 0.30,
+            "trend": 0.20,
+            "insider": 0.15,
+            "reddit": 0.05,
+            "fundamentals": 0.15,
+            "institutional": 0.15,
+        }
+
+        # Adjust weights if sources unavailable
+        if not self.insider:
+            self.weights["technical"] += self.weights["insider"]
+            self.weights["insider"] = 0
+        if not self.reddit:
+            self.weights["technical"] += self.weights["reddit"]
+            self.weights["reddit"] = 0
+        if not self.fundamentals:
+            self.weights["technical"] += self.weights["fundamentals"]
+            self.weights["fundamentals"] = 0
+        if not self.institutional:
+            self.weights["technical"] += self.weights["institutional"]
+            self.weights["institutional"] = 0
+
+        # Normalize weights
+        total = sum(self.weights.values())
+        if total > 0:
+            self.weights = {k: v / total for k, v in self.weights.items()}
+
+    def generate_signals(
+        self,
+        daily_data: dict[str, list],
+        min_confidence: float = 0.5,
+        mock_client=None,
+    ) -> list[EnhancedSignal]:
+        """
+        Generate enhanced signals for all tickers.
+
+        Args:
+            daily_data: Dict of ticker -> list of daily bars
+            min_confidence: Minimum confidence to include signal
+            mock_client: Optional mock Alpaca client for backtesting
+
+        Returns:
+            List of EnhancedSignal objects
+        """
+        enhanced_signals = []
+
+        for ticker, bars in daily_data.items():
+            if not bars:
+                continue
+
+            reasoning = []
+
+            # 1. Technical signals (base)
+            tech_signal = self._get_technical_signal(ticker, bars, mock_client)
+            if tech_signal["direction"] != "neutral":
+                reasoning.append(f"Technical: {tech_signal['direction']} ({tech_signal['strength']:.2f})")
+
+            # 2. Trend filter
+            trend_signal = self._get_trend_signal(bars)
+            if trend_signal["direction"] != "neutral":
+                reasoning.append(f"Trend: {trend_signal['direction']} ({trend_signal['strength']:.2f})")
+
+            # 3. Insider trades
+            insider_signal = self._get_insider_signal(ticker)
+            if insider_signal["direction"] != "neutral":
+                reasoning.append(f"Insider: {insider_signal['direction']} ({insider_signal['strength']:.2f})")
+
+            # 4. Reddit sentiment
+            reddit_signal = self._get_reddit_signal(ticker)
+            if reddit_signal["direction"] != "neutral":
+                reasoning.append(f"Reddit: {reddit_signal['direction']} ({reddit_signal['strength']:.2f})")
+
+            # 5. Fundamentals
+            fund_signal = self._get_fundamentals_signal(ticker)
+            if fund_signal["direction"] != "neutral":
+                reasoning.append(f"Fundamentals: {fund_signal['direction']} ({fund_signal['strength']:.2f})")
+
+            # 6. Institutional holdings
+            inst_signal = self._get_institutional_signal(ticker)
+            if inst_signal["direction"] != "neutral":
+                reasoning.append(f"Institutional: {inst_signal['direction']} ({inst_signal['strength']:.2f})")
+
+            # Combine signals
+            sources = {
+                "technical": tech_signal,
+                "trend": trend_signal,
+                "insider": insider_signal,
+                "reddit": reddit_signal,
+                "fundamentals": fund_signal,
+                "institutional": inst_signal,
+            }
+
+            # Calculate weighted direction and strength
+            direction, strength, confidence = self._combine_signals(sources)
+
+            if confidence >= min_confidence and direction != "neutral":
+                enhanced_signals.append(EnhancedSignal(
+                    ticker=ticker,
+                    direction=direction,
+                    strength=strength,
+                    sources=sources,
+                    confidence=confidence,
+                    reasoning=reasoning,
+                ))
+
+        return enhanced_signals
+
+    def _get_technical_signal(self, ticker: str, bars: list, mock_client=None) -> dict:
+        """Get base technical signal from swing analysis."""
+        try:
+            # If we have a mock client, use it; otherwise create a fresh one
+            client = mock_client if mock_client else None
+            signals = generate_swing_signals([ticker], client)
+            if signals:
+                sig = signals[0]
+                return {
+                    "direction": sig.direction.lower() if sig.direction else "neutral",
+                    "strength": sig.strength,
+                    "confidence": 0.7,
+                }
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"Technical signal failed for {ticker}: {e}")
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _get_trend_signal(self, bars: list) -> dict:
+        """Get trend filter signal."""
+        try:
+            # Convert bars to DataFrame
+            import pandas as pd
+            df = pd.DataFrame([
+                {"close": bar.c, "high": bar.h, "low": bar.l}
+                for bar in bars
+            ])
+
+            # Check long direction
+            result = self.trend_filter.check(df, "long")
+
+            if not result.allowed:
+                # Try short direction
+                result = self.trend_filter.check(df, "short")
+
+            return {
+                "direction": result.trend_direction,
+                "strength": result.strength,
+                "confidence": 0.8,
+            }
+        except Exception:
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _get_insider_signal(self, ticker: str) -> dict:
+        """Get insider trading signal."""
+        if not self.insider:
+            return {
+                "direction": "neutral",
+                "strength": 0,
+                "confidence": 0,
+            }
+
+        try:
+            signal = self.insider.get_signal(ticker, lookback_months=6)
+            return {
+                "direction": signal["signal"],
+                "strength": signal["strength"],
+                "confidence": 0.6,
+            }
+        except Exception:
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _get_reddit_signal(self, ticker: str) -> dict:
+        """Get Reddit sentiment signal."""
+        # Use cached data if available
+        if ticker in self.cached_reddit:
+            cached = self.cached_reddit[ticker]
+            return {
+                "direction": cached.get("signal", "neutral"),
+                "strength": cached.get("strength", 0),
+                "confidence": 0.5,
+            }
+        
+        if not self.reddit:
+            return {
+                "direction": "neutral",
+                "strength": 0,
+                "confidence": 0,
+            }
+
+        try:
+            signal = self.reddit.get_signal(ticker)
+            return {
+                "direction": signal["signal"],
+                "strength": signal["strength"],
+                "confidence": 0.5,
+            }
+        except Exception:
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _get_fundamentals_signal(self, ticker: str) -> dict:
+        """Get fundamental analysis signal."""
+        if not self.fundamentals:
+            return {
+                "direction": "neutral",
+                "strength": 0,
+                "confidence": 0,
+            }
+
+        try:
+            signal = self.fundamentals.get_signal(ticker)
+            return {
+                "direction": signal["signal"],
+                "strength": signal["strength"],
+                "confidence": 0.6,
+            }
+        except Exception:
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _get_institutional_signal(self, ticker: str) -> dict:
+        """Get institutional holdings signal."""
+        if not self.institutional:
+            return {
+                "direction": "neutral",
+                "strength": 0,
+                "confidence": 0,
+            }
+
+        try:
+            signal = self.institutional.get_institutional_signal(ticker)
+            has_data = signal.total_institutions > 0
+            return {
+                "direction": signal.signal,
+                "strength": signal.strength,
+                "confidence": 0.6 if has_data else 0.3,
+            }
+        except Exception:
+            pass
+
+        return {
+            "direction": "neutral",
+            "strength": 0,
+            "confidence": 0,
+        }
+
+    def _combine_signals(
+        self,
+        sources: dict,
+    ) -> tuple[str, float, float]:
+        """
+        Combine multiple signals into a final signal.
+        
+        Strategy:
+        - Technical + Trend are the primary drivers
+        - Insider is used as confirmation (only adds strength when aligned)
+        - Reddit is used as confirmation (only adds strength when aligned)
+        - Fundamentals is used as confirmation (only adds strength when aligned)
+        - Institutional is used as confirmation (only adds strength when aligned)
+        - If institutional + insider + fundamentals all agree, apply a bonus boost
+        
+        Returns:
+            (direction, strength, confidence)
+        """
+        # Get primary signals (technical + trend)
+        tech_signal = sources.get("technical", {})
+        trend_signal = sources.get("trend", {})
+        
+        tech_dir = tech_signal.get("direction", "neutral")
+        trend_dir = trend_signal.get("direction", "neutral")
+        
+        # Determine primary direction from technical + trend
+        if tech_dir in ("buy", "long") and trend_dir in ("buy", "long"):
+            primary_dir = "long"
+        elif tech_dir in ("sell", "short") and trend_dir in ("sell", "short"):
+            primary_dir = "short"
+        elif tech_dir in ("buy", "long"):
+            primary_dir = "long"
+        elif tech_dir in ("sell", "short"):
+            primary_dir = "short"
+        else:
+            primary_dir = "neutral"
+        
+        # Calculate primary strength (technical + trend)
+        tech_strength = tech_signal.get("strength", 0) * 0.6  # 60% technical
+        trend_strength = trend_signal.get("strength", 0) * 0.4  # 40% trend
+        primary_strength = tech_strength + trend_strength
+        
+        # Check confirmation from insider/reddit/fundamentals/institutional
+        confirmation_sources = ["insider", "reddit", "fundamentals", "institutional"]
+        confirmation_count = 0
+        total_confirmation = 0
+        
+        for source_name in confirmation_sources:
+            signal = sources.get(source_name, {})
+            direction = signal.get("direction", "neutral")
+            strength = signal.get("strength", 0)
+            
+            # Only count as confirmation if aligned with primary
+            if direction in ("buy", "long") and primary_dir == "long":
+                confirmation_count += 1
+                total_confirmation += strength
+            elif direction in ("sell", "short") and primary_dir == "short":
+                confirmation_count += 1
+                total_confirmation += strength
+        
+        # Apply confirmation boost (max 20% boost)
+        if confirmation_count > 0:
+            confirmation_boost = min(0.2, total_confirmation * 0.1)
+            primary_strength *= (1 + confirmation_boost)
+
+        # Triple confirmation boost: if institutional + insider + fundamentals all agree
+        triple_sources = ["insider", "institutional", "fundamentals"]
+        triple_aligned = all(
+            sources.get(s, {}).get("direction", "neutral") in (
+                primary_dir, "buy" if primary_dir == "long" else "sell"
+            )
+            for s in triple_sources
+            if sources.get(s, {}).get("direction", "neutral") != "neutral"
+        )
+        if triple_aligned and confirmation_count >= 2:
+            # Extra 10% boost when smart money sources agree
+            primary_strength *= 1.10
+
+        # Determine final direction
+        if primary_strength > 0.05 and primary_dir != "neutral":
+            direction = primary_dir
+            strength = min(1.0, primary_strength)
+        elif primary_strength < -0.05 and primary_dir != "neutral":
+            direction = primary_dir
+            strength = min(1.0, abs(primary_strength))
+        else:
+            direction = "neutral"
+            strength = 0
+        
+        # Calculate confidence based on agreement
+        all_dirs = [tech_dir, trend_dir]
+        if direction != "neutral":
+            agreement = sum(1 for d in all_dirs if d in (direction, "buy" if direction == "long" else "sell")) / len(all_dirs)
+        else:
+            agreement = 0
+        
+        return direction, strength, agreement
