@@ -14,6 +14,8 @@ export async function GET() {
   } catch (err) {
     console.error('Failed to load dashboard state', err);
     const detail = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: 'Failed to load agent state', detail }, { status: 500 });
+    // Debug aid (names only, never values): which SUPABASE_* vars reach the runtime
+    const envSeen = Object.keys(process.env).filter((k) => k.startsWith('SUPABASE_'));
+    return NextResponse.json({ error: 'Failed to load agent state', detail, envSeen }, { status: 500 });
   }
 }
