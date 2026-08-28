@@ -13,6 +13,7 @@ export async function GET() {
     return NextResponse.json(state);
   } catch (err) {
     console.error('Failed to load dashboard state', err);
-    return NextResponse.json({ error: 'Failed to load agent state' }, { status: 500 });
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: 'Failed to load agent state', detail }, { status: 500 });
   }
 }
