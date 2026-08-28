@@ -1,0 +1,156 @@
+# Alpaca Options Credit-Spread Agent
+
+Submission for lablab.ai's **Alpaca AI Trading Agents Hackathon**
+(28 Aug – 4 Sep 2026).
+Team **rookieriot**: Alex ([@Alejdro83](https://github.com/Alejdro83)), Guillaume ([@massemolle](https://github.com/massemolle)), [third teammate].
+Decision log with evidence for every architecture choice: [PLAN.md](PLAN.md) · failure-mode checklist: [PREMORTEM.md](PREMORTEM.md).
+
+An autonomous agent that trades **credit vertical spreads** on US equities:
+a bull put spread when its screening/signal layer sees a bullish setup, a
+bear call spread on a bearish one — both defined-risk from the moment they
+open, sized and gated by explicit code-level rules the LLM decision layer
+cannot override.
+
+**Live dashboard**: https://alpaca-agent-dashboard.vercel.app (also opens
+as a Telegram Mini App via [@Alpaca_alejdro_bot](https://t.me/Alpaca_alejdro_bot) — same page, same code, either way).
+
+## Why this design
+
+- **Screening/signals**: vendored, unmodified, from a real trading system
+  (`trading_bot/` on the author's own infrastructure — 400+ live paper
+  trading cycles before this hackathon existed) — day/swing multi-horizon
+  signal generation, EMA50/200 + ADX trend filtering, liquid-universe
+  filters. This project reuses its *underlying selection* logic and
+  translates the resulting direction into an options structure instead of
+  an equity order.
+- **Options execution — 100% via [Alpaca's official MCP
+  server](https://github.com/alpacahq/alpaca-mcp-server)** (`mcp_client.py`,
+  `spread_builder.py`, `executor_mcp.py`) — every chain lookup, quote, and
+  order placement goes through MCP tool calls, never the raw SDK.
+- **Delta computed in-process, not broker-supplied** (`black_scholes.py`)
+  — verified live against the real account that real-time OPRA options
+  data (needed for Alpaca's own Greeks) requires a paid Algo Trader Plus
+  subscription; the free/paper `indicative` feed returns quotes with no
+  Greeks at all. Rather than degrade to picking strikes by a fixed dollar
+  distance, delta is computed with a standard closed-form Black-Scholes
+  formula, using the same realized-volatility estimate the entry filter
+  already computes as the implied-vol proxy — labeled as a proxy
+  throughout, not overclaiming real IV.
+- **Risk gates** (`risk_gate.py`) — hard, deterministic, code-level checks
+  applied *before* any candidate reaches the LLM: a daily-loss circuit
+  breaker, a max-concurrent-spreads cap, a max-loss-per-spread cap as % of
+  equity, and a DTE window. A candidate that fails any gate is never shown
+  to the model.
+- **Autonomous decision layer** (`llm_reasoner.py`) — among whatever
+  survives the gate, an LLM call picks which spread(s), if any, to actually
+  open this cycle, and produces the plain-language reasoning shown on the
+  dashboard.
+- **Deployment**: scheduled every ~30min during market hours by
+  [Hermes](https://github.com/) (the author's own agent-orchestration
+  system), the same mechanism already running the underlying equities bot
+  for months — chosen over a fresh cloud deployment specifically to reuse
+  proven scheduling/monitoring rather than rebuild it under a hackathon
+  deadline.
+- **Dashboard**: a small Next.js app, also usable as a Telegram Mini App,
+  reading the agent's live state (equity curve, open spreads, every cycle's
+  reasoning) from Supabase — see `../alpaca-agent-dashboard/`.
+
+## Running it
+
+```
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill in the dedicated hackathon Alpaca account's keys
+python smoke_test.py SPY   # confirm MCP + options data + $100k account, before anything else
+python bot.py               # one cycle, manually
+```
+
+Scheduled execution: `run_options_cron.sh`, registered as a Hermes cron job
+(mirrors the schedule/lock/silent-delivery pattern of the author's existing
+equities bot).
+
+## Files
+
+| File | Role |
+|---|---|
+| `bot.py` | Main cycle: manage open spreads → screen → risk-gate → LLM decide → execute |
+| `spread_builder.py` | Signal → concrete strikes/expiration via MCP option contracts + quotes |
+| `black_scholes.py` | Self-computed delta (no broker Greeks available — see below) |
+| `risk_gate.py` | Hard, non-negotiable risk checks, incl. force-close-by-contest-end |
+| `llm_reasoner.py` | The autonomous decision step among risk-approved candidates |
+| `executor_mcp.py` | Opens/closes spreads, exclusively via Alpaca's MCP server |
+| `mcp_client.py` | Thin async wrapper spawning `alpaca-mcp-server` over stdio |
+| `db.py` | Writes agent state to Supabase for the dashboard |
+| `config.py` | All tunables, env-overridable, defaults explained inline |
+| `screening/`, `signals/` | Vendored from `trading_bot/` — unmodified |
+
+## Parameter optimization pass (`backtest_optimize.py`)
+
+Run once, 2026-08-27, before the first live trading day. Reuses the REAL
+signal-generation logic (a documented frozen port of `signals.swing`'s
+per-symbol scoring, since that function fetches live data internally and
+can't be pointed at an arbitrary past date), the REAL `TrendFilter`, and
+the REAL volatility-percentile filter against REAL historical daily bars
+(`trading_bot/backtest/data.py`'s `HistoricalDataLoader`, unmodified) — but
+simulates spread economics with Black-Scholes theoretical pricing on the
+same realized-vol proxy the live bot uses, since real historical option
+chain prices aren't available on this account (same limitation as the live
+bot's own delta calculation — see below). This compares our own parameter
+choices against each other on one consistent, honest proxy; it is **not**
+a market-realistic options backtest, and it doesn't simulate the
+concurrent-spread portfolio cap or the LLM selection step.
+
+Result on a 12-symbol liquid basket over ~2 years (104 real entry events):
+the 10-21 DTE window (the 2026-08-26 research pass) held up well against a
+7-14 alternative — a large, sign-flipping difference (7-14 went net
+negative in several combinations), not a marginal one, so this conclusion
+survives the caveat below. `short_leg_target_delta` initially looked like
+it should move 0.17 → 0.20 (win rate 80.8% vs 78.8%), but a follow-up
+sanity pass against synthetic cases (see `verify_backtest.py`-equivalent
+checks run inline, 2026-08-27) found the strike-selection step (round the
+Black-Scholes-implied strike to the nearest $1, an already-disclosed proxy
+for a real listed-strike ladder) carries real, quantified error — up to a
+34-47% relative delta miss at the production 15-day DTE midpoint for the
+basket's lower-priced names (e.g. CMCSA, ~$35-45). That's the same order
+of magnitude as the 0.17-vs-0.20 difference itself, so that specific
+result is **not trustworthy** and was reverted — `short_leg_target_delta`
+stayed at **0.17**. Recorded here rather than quietly fixed, since the
+first version of this note (now corrected) stated the 0.20 bump with more
+confidence than the underlying check actually supported.
+
+## Honest scope notes
+
+- **No broker-supplied Greeks.** Verified live against the real hackathon
+  account: `feed=opra` 403s with "OPRA agreement is not signed" (real-time
+  OPRA data needs Alpaca's paid Algo Trader Plus plan), and the free
+  `indicative` feed's snapshot has no `greeks` key at all. Delta is
+  computed via `black_scholes.py` using a realized-volatility proxy for
+  implied vol — a standard, well-understood substitution, not hidden
+  anywhere in the code or this document.
+- **`open_interest` is frequently `null`** on this account/feed, even for
+  genuinely liquid near-the-money SPY strikes (verified directly) — the
+  liquidity gate enforces it only when a real value comes back, leaning on
+  the bid-ask-spread check (which does return real, usable data) as the
+  effective liquidity signal.
+- Every field-name and parameter-shape assumption in this codebase (MCP
+  response nesting, `qty`/`ratio_qty` as strings, `position_intent`
+  requirements) has been verified directly against the real account's
+  actual responses, not just Alpaca's docs — several initial guesses were
+  wrong and are visible in git history alongside their fixes.
+- The LLM reasoning step can choose *not* to trade a risk-approved
+  candidate; it can never trade one that failed the gate. That asymmetry is
+  intentional.
+
+## Roadmap — science layer (planned, NOT yet implemented)
+
+Landing as separate, individually-reviewed PRs during the contest week
+(nothing below exists in code yet):
+
+- `pretrade_gate.py` — second risk gate: re-fetch account & quotes AFTER the
+  LLM selects, re-check on current state, reject/resize before any order.
+- `ablation_pnl.py` — counterfactual P&L of the shadow mechanical selector
+  and a random-eligible baseline vs the LLM's picks, on identical candidates.
+- `attribution.py` — daily P&L decomposition vs a synthetic buy-SPY
+  benchmark: skill vs market.
+- `tests/chaos/` — stale quote, MCP timeout, malformed/error-shaped
+  responses, injection payloads: the PREMORTEM items as executable checks.
