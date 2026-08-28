@@ -13,13 +13,6 @@ export async function GET() {
     return NextResponse.json(state);
   } catch (err) {
     console.error('Failed to load dashboard state', err);
-    const detail = err instanceof Error ? err.message : String(err);
-    // Debug aid (names only, never values): which SUPABASE_* vars reach the runtime
-    const envSeen = Object.fromEntries(
-      Object.keys(process.env)
-        .filter((k) => k.startsWith('SUPABASE_'))
-        .map((k) => [k, (process.env[k] ?? '').length])
-    );
-    return NextResponse.json({ error: 'Failed to load agent state', detail, envSeen }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load agent state' }, { status: 500 });
   }
 }
