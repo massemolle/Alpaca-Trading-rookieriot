@@ -54,6 +54,45 @@ is shown verbatim on the project's public dashboard as the agent's own explanati
 so make it genuinely informative, not generic filler."""
 
 
+REASONER_MODE = os.environ.get("REASONER_MODE", "openai")  # "openai" | "claude_code"
+
+
+def _decide_via_claude_code(candidates: list[dict], remaining_budget: int) -> dict:
+    """Runs the decision through headless Claude Code (`claude -p`), which
+    authenticates via this machine's Claude subscription — no API key needed.
+    Same contract as the OpenAI-compatible path. Runs from an empty scratch
+    dir so the CLI has no project context and no reason to reach for tools.
+    """
+    import subprocess
+    import tempfile
+
+    user_prompt = json.dumps(
+        {"remaining_budget": remaining_budget, "candidates": candidates},
+        default=str,
+    )
+    prompt = (
+        SYSTEM_PROMPT
+        + "\n\nRespond with ONLY the JSON object, no code fences, no other text.\n\n"
+        + user_prompt
+    )
+    with tempfile.TemporaryDirectory() as scratch:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text"],
+            capture_output=True, text=True, timeout=180, cwd=scratch,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"claude -p failed: {result.stderr.strip()[:200]}")
+    text = result.stdout.strip()
+    if text.startswith("```"):
+        text = text.strip("`\n")
+        if text.startswith("json"):
+            text = text[4:]
+    parsed = json.loads(text)
+    assert isinstance(parsed.get("selected"), list)
+    assert isinstance(parsed.get("reasoning"), str)
+    return parsed
+
+
 def decide(candidates: list[dict], remaining_budget: int) -> dict:
     """`candidates` items: {ticker, direction, strength, signal_reasoning,
     credit_estimate, max_loss, expiration}. Returns {"selected": [...],
@@ -63,6 +102,13 @@ def decide(candidates: list[dict], remaining_budget: int) -> dict:
     """
     if not candidates:
         return {"selected": [], "reasoning": "No candidates survived the risk gate this cycle."}
+
+    if REASONER_MODE == "claude_code":
+        try:
+            return _decide_via_claude_code(candidates, remaining_budget)
+        except Exception as exc:
+            logger.exception("Claude Code reasoning failed, defaulting to no trade")
+            return {"selected": [], "reasoning": f"LLM reasoning step failed ({exc}); no trade taken this cycle."}
 
     user_prompt = json.dumps(
         {"remaining_budget": remaining_budget, "candidates": candidates},
