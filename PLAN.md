@@ -206,6 +206,24 @@ The no-LLM baseline in the ablation is not home-made: it follows **CBOE strategy
 - **SPY = synthetic shadow benchmark** (not capital-consuming). Options attribution additionally reports delta exposure, theta/vega changes, slippage where possible.
 - `PREMORTEM.md`: each imagined failure → a guard or a test.
 
+## D17 — Build-week schedule (agreed 2026-08-28 night; deadline Fri Sep 4, 15:00 UTC)
+
+Baseline (Alex's, running): screening→signals→risk gate→LLM select→MCP execute, decision journal with shadow selector, dashboard/Mini App, claude_code reasoner (ours), cron every 30min, DRY_RUN on. Everything below is OUR layer, one small PR at a time; cut criteria D11 binding.
+
+| When | Build | Feeds judging |
+|---|---|---|
+| **Sat 29** | **PR1 — pretrade gate hardening**: extract bot.py's `_pre_trade_check` → `pretrade_gate.py`; add re-fetch of account+open spreads at check time, concentration args (currently silently skipped post-LLM), intra-cycle open-count increment, buying-power floor; first pytest suite (fake MCP, no network) | Tech |
+| **Sat 29** | **SPY attribution v1**: record SPY close with every snapshot; dashboard overlays normalized SPY vs equity ("skill vs market") | Presentation, Tech |
+| **Sun 30** | **PR2 — shadow book / ablation P&L**: journal already stores llm_selected vs shadow_selected; add `shadow_positions` table (virtual fills at candidate credit), mark both books each cycle via MCP quotes → dashboard chart "Claude's picks vs mechanical rule, in $" | Creativity, Tech — the demo centerpiece |
+| **Sun 30** | Replay of Fri's recorded cycle shapes through pretrade gate tests; PREMORTEM tick-off pass | Tech |
+| **Mon 31** | Market open: **2 dry cycles → review journal ~17h Paris → flip DRY_RUN=false same day** (P&L needs the days); evening: reconcile bot.py with Alex's local iron-condor version (his live account traded condors; repo builds verticals — ask him to push or decide verticals-only) | P&L |
+| **Tue 1** | **Morning-brief input** (D12 edge #3): `brief.md` the human writes from Bloomberg/Reuters each morning → injected into reasoner prompt as provenance-tagged context; journal records brief hash | Creativity |
+| **Wed 2** | Chaos tests (stale quote, malformed MCP result, error-shaped success); **feature freeze** per D11; optional stretch ONLY if green: D15 parameter-lab shadow run | Tech |
+| **Thu 3** | Stabilization + presentation: equity/attribution/ablation screenshots, 2-3min video, one-pager; scrub deferred identifiers (Open questions item 1); verify submission format requirements | Presentation |
+| **Fri 4 AM** | Submit before 15:00 UTC; forced-close check on open positions (min DTE already ≥10 so no same-week expiries) | — |
+
+Explicitly cut unless everything above is green early: D15 full evolution lab, multi-model reasoner A/B, event-straddle sleeve.
+
 ## Open questions
 
 - [ ] Final scrub before submission (Sep 3–4): remove old-repo mentions in D16 and third-party identifiers (Gaussly, Agent Bazaar, /home/lab-master, dead Hermes link in README) — deferred 2026-08-28 to avoid touching working code mid-week
