@@ -224,6 +224,12 @@ Baseline (Alex's, running): screening→signals→risk gate→LLM select→MCP e
 
 Explicitly cut unless everything above is green early: D15 full evolution lab, multi-model reasoner A/B, event-straddle sleeve.
 
+## D18 — No iron condors; instance divergence protocol (2026-08-28)
+
+**Verticals only on our instance.** Guillaume's call, and the literature backs it rather than contradicting it: CBOE's 30y benchmark comparisons put put-writing strategies on top (BXMD 10.66%/y, PUT 10.13%/y) with the iron-condor index (CNDR) trailing; the volatility risk premium is concentrated in index puts, so a condor's short call adds rally risk for little extra credit. The repo's code already builds only verticals — we simply do NOT adopt Alex's local iron-condor evolution. Bear-call verticals stay allowed when the signal is genuinely bearish (directional trade, defined risk).
+
+**Divergence protocol:** this instance (team repo `main` + this machine + the judged account) is ours; Alex experiments freely on his machine/branches — but **never trading the judged account while our cron holds it** (one live trader per account; his tests belong on a dev paper account). Comparison happens through artifacts, not shared state: decision journals, equity curves, and end-of-week attribution. Merges from his side come as reviewed PRs, not direct pushes to the trading path.
+
 ## Open questions
 
 - [ ] Final scrub before submission (Sep 3–4): remove old-repo mentions in D16 and third-party identifiers (Gaussly, Agent Bazaar, /home/lab-master, dead Hermes link in README) — deferred 2026-08-28 to avoid touching working code mid-week
