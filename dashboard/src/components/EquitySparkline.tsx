@@ -6,7 +6,8 @@ export function EquitySparkline({ points }: { points: { equity: number; snapshot
   if (points.length < 2) {
     return <div className="text-sm text-gray-500">Not enough data yet for a curve.</div>;
   }
-  const values = points.map((p) => p.equity);
+  // Postgres numerics arrive as strings through the API — coerce before math.
+  const values = points.map((p) => Number(p.equity));
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
@@ -17,7 +18,7 @@ export function EquitySparkline({ points }: { points: { equity: number; snapshot
   const path = points
     .map((p, i) => {
       const x = i * step;
-      const y = height - ((p.equity - min) / range) * height;
+      const y = height - ((Number(p.equity) - min) / range) * height;
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');

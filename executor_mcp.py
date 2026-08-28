@@ -15,6 +15,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from config import config
 from mcp_client import AlpacaMCP
 from spread_builder import SpreadPlan
 
@@ -67,6 +68,11 @@ async def open_spread(mcp: AlpacaMCP, plan: SpreadPlan, contracts: int = 1) -> l
 
     Returns the Alpaca order id(s) for the resulting order(s).
     """
+    if config.dry_run:
+        logger.info("DRY_RUN: would open %s %s spread (%s contracts) — no order placed",
+                    plan.underlying, plan.direction, contracts)
+        return [f"dryrun-open-{plan.underlying}-{plan.direction}"]
+
     short_cid = _make_client_order_id(plan.underlying, plan.direction)
     long_cid = _make_client_order_id(plan.underlying, plan.direction)
     logger.info(
@@ -96,6 +102,10 @@ async def close_spread(mcp: AlpacaMCP, short_symbol: str, long_symbol: str, cont
     """Reverses the entry: buy back the short leg, sell the long leg — a
     single multi-leg order for the same fill-both-or-neither reason as entry.
     """
+    if config.dry_run:
+        logger.info("DRY_RUN: would close spread %s / %s (%s contracts) — no order placed",
+                    short_symbol, long_symbol, contracts)
+        return [f"dryrun-close-{short_symbol}"]
     result = await mcp.call(
         "place_option_order",
         {

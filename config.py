@@ -214,6 +214,9 @@ class TelegramConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
+    # DRY_RUN=true logs orders instead of placing them (default false — live
+    # behavior unchanged when the var is unset). Used for safe local testing.
+    dry_run: bool = field(default_factory=lambda: _env("DRY_RUN", "false").lower() == "true")
     alpaca: AlpacaConfig = field(default_factory=AlpacaConfig)
     screening: ScreeningFilters = field(default_factory=ScreeningFilters)
     risk: OptionsRiskLimits = field(default_factory=OptionsRiskLimits)
