@@ -374,6 +374,7 @@ async def run_cycle() -> None:
         shadow_selected: list[str] = []
         llm_selected: list[str] = []
         cycle_id: int | None = None
+        error_text: str | None = None
 
         if remaining_budget > 0 and market_open:
             candidates, gate_rejections = await find_candidates(mcp, client, account, len(open_spreads))
@@ -442,12 +443,16 @@ async def run_cycle() -> None:
                     logger.exception("Failed to open spread for %s", plan.underlying)
                     open_notes.append(f"ERROR opening {plan.underlying}: {exc}")
                     decision = "error"
+                    error_text = f"{type(exc).__name__}: {exc}"
 
-        if decision == "skipped":
-            cycle_id = db.record_cycle(slim_candidates, decision, reasoning)
+        if cycle_id is None:
+            # skipped, error, and everything-blocked cycles all get a row —
+            # previously an error cycle had no cycle_id, which silently
+            # dropped the decision journal below (the record you most want
+            # when something went wrong).
+            cycle_id = db.record_cycle(slim_candidates, decision, reasoning, error=error_text)
 
-        if cycle_id is not None:
-            db.record_decision_journal(
+        db.record_decision_journal(
                 cycle_id=cycle_id,
                 candidates=slim_candidates,
                 llm_selected=llm_selected,
