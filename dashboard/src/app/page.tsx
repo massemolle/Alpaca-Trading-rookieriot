@@ -6,7 +6,7 @@ import { EquitySparkline } from '@/components/EquitySparkline';
 import { KpiRow } from '@/components/KpiRow';
 import { RiskGatesPanel } from '@/components/RiskGatesPanel';
 import { StatusBadges } from '@/components/StatusBadges';
-import { computeKpis } from '@/lib/stats';
+import { computeKpis, computeVsSpy } from '@/lib/stats';
 
 interface DashboardState {
   latestSnapshot: {
@@ -40,7 +40,7 @@ interface DashboardState {
     reasoning: string | null;
     error: string | null;
   }>;
-  equityCurve: Array<{ equity: number; snapshot_at: string }>;
+  equityCurve: Array<{ equity: number; spy_price: number | null; snapshot_at: string }>;
 }
 
 const POLL_MS = 30_000;
@@ -92,11 +92,12 @@ export default function DashboardPage() {
   const openSpreads = spreads.filter((s) => s.status === 'open');
   const closedSpreads = spreads.filter((s) => s.status !== 'open');
   const kpis = computeKpis(spreads);
+  const vsSpy = computeVsSpy(equityCurve);
 
   return (
     <Shell>
       <StatusBadges lastCycleAt={cycles[0]?.ran_at ?? null} />
-      {latestSnapshot && <KpiRow kpis={kpis} />}
+      {latestSnapshot && <KpiRow kpis={kpis} vsSpy={vsSpy} />}
       {!latestSnapshot ? (
         <p className="text-gray-500 text-sm">
           No account snapshots yet — the agent hasn&apos;t run its first cycle. Check back once the

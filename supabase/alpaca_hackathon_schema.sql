@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.account_snapshots (
     open_spreads_count  INTEGER,
     daily_pl            NUMERIC,
     daily_pl_pct        NUMERIC,
+    spy_price           NUMERIC,
     snapshot_at         TIMESTAMPTZ DEFAULT now()
 );
 

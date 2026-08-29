@@ -39,6 +39,7 @@ from signals.indicators import compute_atr
 from signals.swing import generate_swing_signals
 from signals.trend_filter import TrendFilter
 
+import benchmark
 import black_scholes
 import db
 import executor_mcp
@@ -469,6 +470,7 @@ async def run_cycle() -> None:
             open_spreads_count=len(db.get_open_spreads()),
             daily_pl=float(account.get("daily_pl")) if account.get("daily_pl") else None,
             daily_pl_pct=float(account.get("daily_pl_pct")) if account.get("daily_pl_pct") else None,
+            spy_price=benchmark.spy_mid(client),
         )
 
         for note in close_notes + open_notes:

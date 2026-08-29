@@ -14,12 +14,12 @@ function Tile({ label, value, sub, tone }: { label: string; value: string; sub?:
   );
 }
 
-export function KpiRow({ kpis }: { kpis: KpiSummary }) {
+export function KpiRow({ kpis, vsSpy }: { kpis: KpiSummary; vsSpy?: number | null }) {
   const pnlTone = kpis.totalRealizedPnl > 0 ? 'good' : kpis.totalRealizedPnl < 0 ? 'bad' : 'neutral';
   const pnlSign = kpis.totalRealizedPnl >= 0 ? '+' : '';
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+    <div className={`grid grid-cols-2 ${vsSpy == null ? "sm:grid-cols-4" : "sm:grid-cols-5"} gap-2 mb-4`}>
       <Tile
         label="P&L realizado"
         value={`${pnlSign}$${kpis.totalRealizedPnl.toFixed(2)}`}
@@ -41,6 +41,14 @@ export function KpiRow({ kpis }: { kpis: KpiSummary }) {
         value={kpis.avgPnlPerTrade === null ? '—' : `${kpis.avgPnlPerTrade >= 0 ? '+' : ''}$${kpis.avgPnlPerTrade.toFixed(2)}`}
         tone={kpis.avgPnlPerTrade === null ? 'neutral' : kpis.avgPnlPerTrade > 0 ? 'good' : kpis.avgPnlPerTrade < 0 ? 'bad' : 'neutral'}
       />
+      {vsSpy != null && (
+        <Tile
+          label="vs SPY"
+          value={`${vsSpy >= 0 ? '+' : ''}${(vsSpy * 100).toFixed(2)}%`}
+          sub="retorno cuenta − retorno SPY"
+          tone={vsSpy > 0 ? 'good' : vsSpy < 0 ? 'bad' : 'neutral'}
+        />
+      )}
     </div>
   );
 }

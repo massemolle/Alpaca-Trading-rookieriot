@@ -38,3 +38,22 @@ export function computeKpis(spreads: SpreadForStats[]): KpiSummary {
     avgPnlPerTrade: closed.length > 0 ? totalRealizedPnl / closed.length : null,
   };
 }
+
+export interface CurvePoint {
+  equity: number | string;
+  spy_price: number | string | null;
+  snapshot_at: string;
+}
+
+// "Skill vs market": account return minus SPY buy-and-hold return, both
+// measured from the first snapshot that has a SPY price. Postgres numerics
+// arrive as strings — coerce everything.
+export function computeVsSpy(curve: CurvePoint[]): number | null {
+  const withSpy = curve.filter((p) => p.spy_price !== null && Number(p.spy_price) > 0);
+  if (withSpy.length < 2) return null;
+  const first = withSpy[0];
+  const last = withSpy[withSpy.length - 1];
+  const acctReturn = Number(last.equity) / Number(first.equity) - 1;
+  const spyReturn = Number(last.spy_price) / Number(first.spy_price) - 1;
+  return acctReturn - spyReturn;
+}

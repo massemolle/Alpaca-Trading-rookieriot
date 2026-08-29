@@ -8,6 +8,7 @@ Usage: set -a; source .env; set +a; python record_snapshot.py
 """
 from __future__ import annotations
 
+import benchmark
 import db
 from alpaca_client import AlpacaClient
 
@@ -27,6 +28,7 @@ def main() -> None:
         open_spreads_count=open_count,
         daily_pl=daily_pl,
         daily_pl_pct=daily_pl_pct,
+        spy_price=benchmark.spy_mid(client),
     )
     print(f"snapshot recorded: equity={equity:,.2f} daily_pl={daily_pl:+.2f} open_spreads={open_count}")
 
