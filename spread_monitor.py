@@ -130,13 +130,16 @@ class SpreadMonitor:
             )
 
     def _compute_mark(self, short_symbol: str, long_symbol: str) -> float | None:
+        """Cost to close in dollars *per contract* — must match
+        executor_mcp.get_spread_mark and credit_received units (×100).
+        """
         sq = self._quotes.get(short_symbol)
         lq = self._quotes.get(long_symbol)
         if not sq or not lq:
             return None
         short_mid = (sq["bid"] + sq["ask"]) / 2
         long_mid = (lq["bid"] + lq["ask"]) / 2
-        return short_mid - long_mid
+        return round((short_mid - long_mid) * 100, 2)
 
     async def _handle_message(self, raw: str) -> None:
         msgs = json.loads(raw)

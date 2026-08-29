@@ -41,10 +41,12 @@ def test_dry_run_never_places_orders(monkeypatch):
         async def call(self, tool, arguments):
             raise AssertionError(f"DRY_RUN must not reach MCP, got {tool}")
 
-    ids = run(executor_mcp.open_spread(MustNotBeCalledMCP(), make_plan(), contracts=2))
-    assert ids and ids[0].startswith("dryrun-")
-    ids = run(executor_mcp.close_spread(MustNotBeCalledMCP(), "S", "L", 2))
-    assert ids and ids[0].startswith("dryrun-")
+    result = run(executor_mcp.open_spread(MustNotBeCalledMCP(), make_plan(), contracts=2))
+    assert result.status == "dry_run"
+    assert result.order_ids[0].startswith("dryrun-")
+    result = run(executor_mcp.close_spread(MustNotBeCalledMCP(), "S", "L", 2))
+    assert result.status == "dry_run"
+    assert result.order_ids[0].startswith("dryrun-")
 
 
 # --- reasoner: garbage in, abstention out ----------------------------------

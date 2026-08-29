@@ -1,53 +1,78 @@
-# Monday runbook — symptom → one command
+# Monday go-live runbook
 
-Everything here is reversible and takes under a minute. When in doubt: STOP
-the bot first (step 1), diagnose second. The market will still be there.
+Everything here is reversible. When in doubt: **STOP** the bot first (step 1),
+diagnose second. The market will still be there.
+
+## Pre-open checklist (before 13:30 UTC / 15:30 CEST)
+
+- [ ] `DRY_RUN=true` in `.env` until the controlled one-contract rehearsal passes
+- [ ] Dedicated ~$100k paper account; options approval enabled; keys only for this account
+- [ ] Schema applied: `supabase/alpaca_hackathon_schema.sql` (includes `fill_credit`,
+      `client_order_id`, `lab_trades` / `lab_summary`)
+- [ ] `UNIVERSE_TICKERS=SPY,QQQ,IWM` (or `SPY,QQQ`); `UNIVERSE_MODE=etf`
+- [ ] `MAX_CONTRACTS_PER_SPREAD=1` (do not raise until fill tracking is observed live)
+- [ ] Frozen heuristics unchanged: `SHORT_LEG_TARGET_DELTA=0.17`, `MIN_DTE=10`,
+      `MAX_DTE=21`, `SPREAD_WIDTH_DOLLARS=5`, `PROFIT_TARGET_PCT=0.50`,
+      `STOP_LOSS_MULTIPLE=2.0` — contest defaults, not claimed optima
+- [ ] Offline validation green:
+  ```
+  python -m pytest tests/ -q
+  python iv_diagnostic.py          # offline IV round-trip only
+  python verify_backtest.py        # mechanics checks (no live API)
+  ```
+- [ ] Dashboard `/api/state` loads; ablation panel shows LLM / mechanical / random
+- [ ] Telegram (or log) alerts reachable; `run_options_cron.sh` exits non-zero on bot failure
+- [ ] Shared lock: `emergency_flatten.py` and cron both use `state/bot.lock`
+
+## Controlled go-live (13:30 UTC Monday)
+
+1. One dry cycle on fresh quotes:
+   ```
+   set -a; source .env; set +a
+   DRY_RUN=true python bot.py
+   ```
+2. Review journal + dashboard: candidates, gates, LLM/shadow/random picks, no reconcile block.
+3. Flip `DRY_RUN=false` and submit **one** one-contract SPY or QQQ spread with limit pricing.
+4. Wait for confirmed fill (`status=open`, `fill_credit` set). Reconcile broker ↔ DB ↔ dashboard ↔ shadow.
+5. Only then enable unattended cron. Keep one contract until quantity-aware gates and fills are observed.
 
 ## 1. STOP new trading (any severity)
 ```
 crontab -l | grep -v run_options_cron | crontab -
 ```
-Re-enable later:
+Re-enable later (adjust path):
 ```
-(crontab -l; echo "*/30 13-20 * * 1-5 /home/ubuntu/Alpaca-Trading-rookieriot/run_options_cron.sh >> /home/ubuntu/Alpaca-Trading-rookieriot/state/cron.log 2>&1") | crontab -
+(crontab -l; echo "*/30 13-20 * * 1-5 /path/to/Alpaca-trading/run_options_cron.sh >> /path/to/Alpaca-trading/state/cron.log 2>&1") | crontab -
 ```
 
 ## 2. Back to simulation (bot keeps running, orders stop)
-Edit `.env`: `DRY_RUN=true`  (next cycle logs orders instead of placing them)
+Edit `.env`: `DRY_RUN=true`
 
-## 3. Close everything now (positions look wrong / runaway)
+## 3. Close everything now
 ```
 set -a; source .env; set +a; python emergency_flatten.py
 ```
-Honors DRY_RUN. Asks for confirmation ("flatten"). If MCP itself is broken,
-close manually: app.alpaca.markets → paper account → Positions → liquidate.
+Honors DRY_RUN and the same flock as cron. Asks for confirmation ("flatten").
+If MCP is broken: app.alpaca.markets → paper → Positions → liquidate.
 
-## 4. Roll back a bad code change
+## 4. Broker / DB divergence
+Any unexplained mismatch **blocks new entries** (`reconcile_block` cycle).
 ```
-git log --oneline -10          # find the last good commit
-git revert <bad_commit>        # or: git reset --hard <good> && git push -f
+set -a; source .env; set +a; python -c "from alpaca_client import AlpacaClient; import reconciler; print(reconciler.reconcile(AlpacaClient()))"
 ```
-The gate/journal/tests landed in small commits — revert is surgical.
+Fix phantom/missing rows before re-enabling entries.
 
-## 5. Diagnose before changing anything
-- `tail -50 state/bot.log` — every INFO line of the last cycles
-- `tail -30 state/cron.log` — did cron even fire? lock contention?
-- Dashboard "Recent agent decisions" — what did it decide and why
-- `python -m pytest tests/ -q` — 23 tests; a red one names the broken part
-- One manual cycle with full visibility:
-  `set -a; source .env; set +a; python bot.py` (DRY_RUN=true first!)
+## 5. Diagnose
+- `tail -50 state/bot.log` / `tail -30 state/cron.log`
+- Dashboard “Recent agent decisions” + ablation meta (abstention, gate blocks, slippage)
+- `python -m pytest tests/ -q`
+- Manual: `DRY_RUN=true python bot.py`
 
-## 6. Reasoner misbehaving (bad picks, timeouts)
-- Abstain-on-failure is built in: worst case = no trades, never bad parses
-- Disable LLM entirely (mechanical shadow rule continues to journal):
-  `.env`: `REASONER_MODE=openai` with no key → decide() fails safe → abstains
-- Claude quota exhausted (subscription limits): same abstention path; check
-  `claude -p "ok"` manually
+## 6. Reasoner misbehaving
+Abstain-on-failure is built in. Empty LLM pick on a non-empty menu → `abstained`.
+Disable LLM: remove/break reasoner key → fail-safe abstention; shadow still journals.
 
-## 7. Who to call
-Alex — his stack is independent; worst case he re-points his instance at the
-judged account (ONLY after our cron is disabled — one live trader per account).
-
-## Known-safe baseline
-Commit tagged in git history: every commit on main passed 23 tests + a dry
-cycle before push. `git log --oneline` = the audit trail.
+## Known-safe framing
+This is an **auditable constrained-agent experiment**, not statistically proven LLM
+alpha or a universally optimal options strategy. Present sample size, abstention,
+gate-block rate, and execution slippage honestly.

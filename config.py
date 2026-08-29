@@ -154,6 +154,22 @@ class OptionsRiskLimits:
         # risk_gate.should_force_close().
         default_factory=lambda: _env("CONTEST_END_UTC", "2026-09-04T15:00:00+00:00")
     )
+    # Cap contracts after quantity-aware sizing — start at 1 for Monday
+    # go-live until fill tracking is observed live; raise via env later.
+    max_contracts_per_spread: int = field(
+        default_factory=lambda: _env_int("MAX_CONTRACTS_PER_SPREAD", 1)
+    )
+    # Max acceptable credit deterioration vs checked mid when submitting a
+    # marketable limit (credit spreads: limit = mid * (1 - slip)).
+    max_entry_slippage_pct: float = field(
+        default_factory=lambda: _env_float("MAX_ENTRY_SLIPPAGE_PCT", 0.10)
+    )
+    order_poll_timeout_s: float = field(
+        default_factory=lambda: _env_float("ORDER_POLL_TIMEOUT_S", 45.0)
+    )
+    order_poll_interval_s: float = field(
+        default_factory=lambda: _env_float("ORDER_POLL_INTERVAL_S", 2.0)
+    )
 
 
 @dataclass(frozen=True)
@@ -213,6 +229,21 @@ class TelegramConfig:
 
 
 @dataclass(frozen=True)
+class UniverseConfig:
+    """Judged core underlyings — liquid index ETFs only until earnings /
+    ex-dividend protections exist for single names.
+    """
+    # Comma-separated tickers; default SPY,QQQ,(optional IWM).
+    tickers: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            t.strip().upper()
+            for t in _env("UNIVERSE_TICKERS", "SPY,QQQ,IWM").split(",")
+            if t.strip()
+        )
+    )
+
+
+@dataclass(frozen=True)
 class AppConfig:
     # DRY_RUN=true logs orders instead of placing them (default false — live
     # behavior unchanged when the var is unset). Used for safe local testing.
@@ -221,6 +252,7 @@ class AppConfig:
     screening: ScreeningFilters = field(default_factory=ScreeningFilters)
     risk: OptionsRiskLimits = field(default_factory=OptionsRiskLimits)
     volatility: VolatilityFilter = field(default_factory=VolatilityFilter)
+    universe: UniverseConfig = field(default_factory=UniverseConfig)
     supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 

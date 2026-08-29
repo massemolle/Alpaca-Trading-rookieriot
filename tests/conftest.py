@@ -76,3 +76,15 @@ def fake_db(monkeypatch):
 
     monkeypatch.setattr(pretrade_gate, "db", _DB)
     return open_spreads
+
+
+@pytest.fixture
+def capped_contracts(monkeypatch):
+    """Allow multi-contract sizing in tests (production default is 1)."""
+    import dataclasses
+    import pretrade_gate
+
+    risk = dataclasses.replace(pretrade_gate.config.risk, max_contracts_per_spread=10)
+    cfg = dataclasses.replace(pretrade_gate.config, risk=risk)
+    monkeypatch.setattr(pretrade_gate, "config", cfg)
+    return cfg

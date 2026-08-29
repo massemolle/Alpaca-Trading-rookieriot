@@ -1,24 +1,11 @@
 """The second risk gate (PLAN D1/ADR-0002): last-second validation AFTER the
-LLM selects and BEFORE any order reaches Alpaca — extracted from bot.py's
-inline `_pre_trade_check` and hardened:
+LLM selects and BEFORE any order reaches Alpaca.
 
-- Re-fetches fresh option quotes for both legs (as before: 15-min staleness
-  hard block, non-positive/shrunken-credit block, plan rebuilt on fresh mids).
-- NEW: re-fetches account state and open spreads AT CHECK TIME — the values
-  captured at cycle start can be minutes old by the time the LLM has decided
-  (TradeTrap's perceived-vs-actual-state divergence, PLAN D3).
-- NEW: recomputes per-underlying exposure and passes it to
-  risk_gate.check_new_spread — the concentration cap previously ran only in
-  the pre-LLM gate and was silently skipped here.
-- NEW: `opened_this_cycle` counts spreads opened earlier in the same cycle,
-  so one cycle can no longer exceed max_concurrent_spreads.
-- NEW: buying-power floor for at least one contract's max loss.
-- NEW: fail-closed — any exception inside the gate blocks the trade with a
-  reason instead of raising into the caller's execution error handling.
+Hardened for quantity-aware sizing: contracts are computed inside the gate
+from fresh equity/max_loss, then buying power and concentration are checked
+against total exposure (max_loss * contracts), not a one-contract proxy.
 
-Returns a GateResult whose `facts` dict (quote ages, original vs fresh
-credit, equity/buying power at check time) is journaled with each decision.
-Never imports bot.py.
+Also fail-closed on missing quote timestamps (unknown age ≠ fresh).
 """
 from __future__ import annotations
 
@@ -29,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 
 import db
 import risk_gate
+from config import config
+from sizing import optimal_contracts
 from spread_builder import SpreadPlan, _mid_from_snapshot
 
 logger = logging.getLogger(__name__)
@@ -43,6 +32,7 @@ class GateResult:
     reasons: list[str]
     plan: SpreadPlan
     facts: dict = field(default_factory=dict)
+    contracts: int = 0
 
     @property
     def reason(self) -> str | None:
@@ -50,10 +40,6 @@ class GateResult:
 
 
 def _daily_pl(account: dict) -> tuple[float, float]:
-    """`AlpacaClient.get_account()` only returns equity/last_equity, not a
-    precomputed daily P&L — derived here rather than assuming a field the
-    underlying client doesn't actually provide. (Moved from bot.py.)
-    """
     equity = float(account["equity"])
     last_equity = float(account["last_equity"])
     pl = equity - last_equity
@@ -78,16 +64,19 @@ async def pre_trade_check(
     plan: SpreadPlan,
     *,
     opened_this_cycle: int = 0,
+    contracts: int | None = None,
 ) -> GateResult:
     try:
-        return await _pre_trade_check_inner(mcp, client, plan, opened_this_cycle)
-    except Exception as exc:  # fail-closed: a broken gate must block, not trade
+        return await _pre_trade_check_inner(
+            mcp, client, plan, opened_this_cycle, contracts=contracts,
+        )
+    except Exception as exc:  # fail-closed
         logger.exception("Pre-trade gate errored — blocking the trade")
         return GateResult(False, [f"gate error (fail-closed): {exc}"], plan)
 
 
 async def _pre_trade_check_inner(
-    mcp, client, plan: SpreadPlan, opened_this_cycle: int
+    mcp, client, plan: SpreadPlan, opened_this_cycle: int, *, contracts: int | None,
 ) -> GateResult:
     facts: dict = {"checked_at": datetime.now(timezone.utc).isoformat()}
 
@@ -105,12 +94,16 @@ async def _pre_trade_check_inner(
         return GateResult(False, ["fresh quotes unavailable for one or both legs"], plan, facts)
 
     now = datetime.now(timezone.utc)
-    # Real bug caught 2026-08-27 (pre-extraction): a stale quote only logged a
-    # warning and traded anyway, producing a nonsensical spread — hard block.
     for label, snap in [("short", short_snap), ("long", long_snap)]:
         age = _quote_age(snap, now)
         facts[f"{label}_quote_age_s"] = round(age.total_seconds(), 1) if age is not None else None
-        if age is not None and age > timedelta(minutes=STALE_QUOTE_MAX_MIN):
+        if age is None:
+            return GateResult(
+                False,
+                [f"{label} leg quote has no timestamp — unknown age, refusing to trade"],
+                plan, facts,
+            )
+        if age > timedelta(minutes=STALE_QUOTE_MAX_MIN):
             return GateResult(
                 False,
                 [f"{label} leg quote is {age} old (>{STALE_QUOTE_MAX_MIN} min) — stale, refusing to trade on it"],
@@ -139,34 +132,54 @@ async def _pre_trade_check_inner(
         )
     updated_plan = dataclasses.replace(plan, credit_estimate=fresh_credit, max_loss=updated_max_loss)
 
-    # Re-fetch broker + book state at check time — never reuse cycle-start values.
     account = client.get_account()
     _, daily_pl_pct = _daily_pl(account)
+    equity = float(account["equity"])
     fresh_open = db.get_open_spreads()
     open_count = len(fresh_open) + opened_this_cycle
     existing_exposure: dict[str, float] = {}
     for s in fresh_open:
         u = s["underlying"]
-        contracts = int(s.get("contracts") or 1)
-        existing_exposure[u] = existing_exposure.get(u, 0) + float(s.get("max_loss", 0)) * contracts
+        n = int(s.get("contracts") or 1)
+        existing_exposure[u] = existing_exposure.get(u, 0) + float(s.get("max_loss", 0)) * n
 
-    facts["equity_at_check"] = float(account["equity"])
+    if contracts is None:
+        contracts = optimal_contracts(
+            equity=equity,
+            max_loss_per_contract=updated_max_loss,
+            max_risk_pct=config.risk.max_loss_per_spread_pct,
+            max_contracts=config.risk.max_contracts_per_spread,
+        )
+    facts["contracts"] = contracts
+    facts["equity_at_check"] = equity
     facts["buying_power_at_check"] = float(account.get("buying_power") or 0.0)
     facts["open_count_used"] = open_count
     facts["opened_this_cycle"] = opened_this_cycle
 
-    if facts["buying_power_at_check"] < updated_max_loss:
+    if contracts < 1:
         return GateResult(
             False,
-            [f"buying power ${facts['buying_power_at_check']:,.2f} below one contract's max loss ${updated_max_loss:,.2f}"],
-            updated_plan, facts,
+            [f"even 1 contract max loss ${updated_max_loss:,.2f} exceeds "
+             f"{config.risk.max_loss_per_spread_pct:.0%} of equity"],
+            updated_plan, facts, contracts=0,
+        )
+
+    total_max_loss = updated_max_loss * contracts
+    facts["total_max_loss"] = total_max_loss
+
+    if facts["buying_power_at_check"] < total_max_loss:
+        return GateResult(
+            False,
+            [f"buying power ${facts['buying_power_at_check']:,.2f} below "
+             f"{contracts} contract(s) max loss ${total_max_loss:,.2f}"],
+            updated_plan, facts, contracts=contracts,
         )
 
     check = risk_gate.check_new_spread(
-        equity=float(account["equity"]),
+        equity=equity,
         daily_pl_pct=daily_pl_pct,
         open_spreads_count=open_count,
-        max_loss=updated_max_loss,
+        max_loss=total_max_loss,
         expiration=plan.expiration,
         today=now.date(),
         existing_exposure=existing_exposure,
@@ -174,7 +187,9 @@ async def _pre_trade_check_inner(
     )
     if not check.allowed:
         return GateResult(
-            False, [f"risk gate rejected on fresh quotes: {r}" for r in check.reasons], updated_plan, facts
+            False,
+            [f"risk gate rejected on fresh quotes: {r}" for r in check.reasons],
+            updated_plan, facts, contracts=contracts,
         )
 
-    return GateResult(True, [], updated_plan, facts)
+    return GateResult(True, [], updated_plan, facts, contracts=contracts)

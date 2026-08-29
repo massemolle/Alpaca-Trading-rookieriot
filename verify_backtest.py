@@ -16,11 +16,41 @@ backtest_optimize.py's results table.
 from __future__ import annotations
 
 import sys
+import types
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+# Stub trading_bot-only and broker SDK deps so offline mechanics checks run
+# without alpaca-py installed (same idea as backtest_lab.py).
+_stub = types.ModuleType("backtest.data")
+_stub.HistoricalDataLoader = object
+_pkg = types.ModuleType("backtest")
+_pkg.data = _stub
+sys.modules.setdefault("backtest", _pkg)
+sys.modules.setdefault("backtest.data", _stub)
+
+# signals.swing pulls alpaca_client → alpaca-py; only Signal is needed here.
+from dataclasses import dataclass, field as _field
+from typing import Any as _Any
+
+_swing = types.ModuleType("signals.swing")
+
+
+@dataclass
+class _Signal:
+    ticker: str
+    direction: str
+    strength: float
+    indicators: dict[str, _Any]
+    reasoning: list[str] = _field(default_factory=list)
+
+
+_swing.Signal = _Signal
+sys.modules["signals.swing"] = _swing
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from backtest_optimize import bs_price, strike_for_delta, simulate_trade
 import black_scholes

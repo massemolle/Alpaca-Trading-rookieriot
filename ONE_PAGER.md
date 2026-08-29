@@ -1,80 +1,65 @@
 # Alpaca Options Credit-Spread Agent — One-Pager
 
-*Draft skeleton — fill in real numbers/screenshots once the account has a
-few days of live activity (see plan Day 6-7). Every section below states
-what evidence it needs; don't submit until each placeholder is replaced
-with something real and verifiable.*
+*Framing for judges: an auditable constrained-agent experiment on paper capital.
+Not a claim of statistically proven LLM alpha or a universally optimal options
+strategy. Replace bracketed placeholders with live numbers before final submit.*
 
 ## AI logic
 
-- Underlying selection: [screening/signals summary — liquid universe size,
-  which horizon(s) used, trend-filter pass rate this week]
-- Options structure: credit vertical spreads (bull put / bear call),
-  ~16-18 delta short strike, $5-wide, 10-21 DTE. Delta and DTE were both
-  tuned down from more common textbook values (25-30 delta, 30-45 DTE)
-  specifically for a ~5-trading-day judged window: research shows 25-30
-  delta's higher expected value only plays out over hundreds of trades,
-  while a handful of trades in one week is dominated by variance, and 30-45
-  DTE resolves well past the contest entirely.
-- Entry additionally requires a realized-volatility-percentile filter (a
-  proxy for true IV rank — see `config.py`'s `VolatilityFilter` docstring
-  for why it's a proxy, not the real thing): only sells premium when the
-  underlying's current 20-day ATR% sits at/above the 40th percentile of its
-  own trailing year.
-- Autonomous decision layer: [N] LLM decision calls this week, [N] resulted
-  in a trade, [N] in a deliberate skip — include 2-3 real `reasoning`
-  strings pulled from the `cycles` table as examples.
+- **Universe (frozen for judging):** liquid index ETFs only — default
+  `SPY,QQQ,IWM` via `UNIVERSE_TICKERS` / `UNIVERSE_MODE=etf`. Single names stay
+  off until earnings / ex-dividend protections exist.
+- **Signals:** swing long/short only — **neutrals are rejected** (never mapped
+  to a bear call by accident).
+- **Structure:** credit verticals (bull put / bear call), short-leg target
+  **0.17 model-delta**, **$5** width, **10–21 DTE**, **50%** profit target,
+  **2×** stop — contest heuristics, not claimed optima. No further in-sample
+  parameter search before Monday.
+- **Vol filter:** realized-vol percentile proxy for IV rank (see `VolatilityFilter`).
+- **Decision layer:** LLM selects from a **single immutable, risk-approved
+  menu**; hard-capped to remaining concurrent slots. Same menu feeds mechanical
+  and random shadow policies (`selector.mechanical_score` =
+  `strength × credit / max_loss`).
+- Autonomous calls this week: [N] → trade / [N] abstain / [N] gate-blocked —
+  paste 2–3 real `reasoning` strings from `cycles`.
 
-## Risk gates
+## Risk gates (quantity-aware)
 
-- Max loss per spread: 2% of equity (~$[X] at $100k).
-- Daily loss circuit breaker: -3%, [did it trigger this week? Y/N]
-- Max concurrent spreads: 5.
-- DTE window: 7-14 days, so every position resolves within or just past
-  the judging window.
-- [Any gate that actually fired this week — a rejected candidate is good
-  evidence the gates are real, not decorative]
-- Force-close-by-contest-end: any spread still open once expiration is ≤1
-  day away, or the contest deadline is within 2 hours, closes unconditionally
-  regardless of profit/loss — added specifically so a late-week entry can't
-  end the contest open and undemonstrated.
-- Per-contract liquidity gate: both legs require a bid-ask spread ≤12% of
-  mid, and open interest ≥100 whenever the API actually reports a value
-  (confirmed live: Alpaca's free/paper tier returns `open_interest: null`
-  even for genuinely liquid, near-the-money SPY contracts — enforced only
-  when present rather than silently rejecting almost everything).
-- **Known, accepted limitation**: the shared equity screening universe skews
-  toward large-cap tech, so several concurrent spreads could end up
-  correlated in a broad market move rather than truly diversified — not
-  addressed with a hard code change given the timeline, named here instead.
+- Size contracts **before** final approval; gates use
+  `max_loss_per_contract × contracts`.
+- Max loss per spread: 2% of equity; daily loss breaker −3%; max concurrent 5;
+  concentration and buying-power checks in `pretrade_gate.py`.
+- Default **`MAX_CONTRACTS_PER_SPREAD=1`** for Monday until fills are observed.
+- Missing quote timestamps **fail closed**; entries use **bounded limit** prices
+  with idempotent `client_order_id`; pending → filled only after broker confirm.
+- Broker↔DB **reconciliation** every cycle; unexplained mismatch blocks entries.
+- Force-close near expiry / contest deadline: verified RTH close workflow
+  (reconcile → limit close → confirm / retry), not a blind market dump.
+
+## Experiment integrity
+
+- LLM / mechanical / random share eligibility, risk budget, and synthetic mid
+  fills for attribution; **real broker fills** reported separately (slippage).
+- Dashboard: realized vs unrealized per policy + sample size, abstention rate,
+  gate-block rate, credit slippage.
+- Offline lab: append-only `lab_trades` / `lab_summary` with `run_id`.
 
 ## Alpaca infrastructure
 
-- 100% of options reads/orders via [Alpaca's official MCP
-  server](https://github.com/alpacahq/alpaca-mcp-server) —
-  `get_option_contracts`, `get_option_snapshot`, `place_option_order`.
-  Never the raw SDK for anything options-related.
-- No broker-supplied Greeks are available on this account without a paid
-  Algo Trader Plus subscription (confirmed live: `feed=opra` 403s with
-  "OPRA agreement is not signed"; the free `indicative` feed has no
-  `greeks` field at all) — delta is computed in-process via closed-form
-  Black-Scholes, using realized volatility as the implied-vol proxy.
-- Screening/signal generation reuses a real, independently-running
-  equities trading system's tested code (400+ prior live paper cycles),
-  translated to an options structure for this project.
-- Scheduled ~every 30min during market hours; [N] cycles run, [N] errors
-  (link the specific error if any, and what happened as a result).
+- Options reads/orders via [Alpaca MCP](https://github.com/alpacahq/alpaca-mcp-server).
+- No broker Greeks on this feed → BS delta with realized-vol proxy; quote IV is
+  **diagnostic only** (`iv_diagnostic.py`) until promoted after dry-run evidence.
+- Schedule: `run_options_cron.sh` (flock + non-zero exit on failure).
 
-## Results (fill in from the real account before submitting)
+## Results (fill from the real account)
 
-- Starting equity: $100,000 ([date])
-- Ending equity: $[X] ([date])
-- Total spreads opened: [N] — [N] closed profitable, [N] closed at a loss,
-  [N] still open at submission time
-- Alpaca paper account ID: [account ID, required for judging]
+- Starting equity: $100,000 ([date]) → Ending: $[X] ([date])
+- Spreads: [N] opened / [N] profitable / [N] loss / [N] still open
+- Account ID: [required for judging]
 
 ## Honest scope notes
 
-- [Anything that didn't work as intended, any manual intervention, any gap
-  between design and what actually ran this week — this section exists
-  specifically so it doesn't get skipped under deadline pressure.]
+- One-week N is underpowered — case study, not proof.
+- Do not claim unconditional VRP edge, 0.17δ optimality, or LLM alpha over
+  mechanical baselines without holdout evidence.
+- Unresolved risks remain explicit in `PREMORTEM.md` (assignment, ex-div, etc.).

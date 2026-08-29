@@ -1,13 +1,12 @@
 """Unit tests for the second risk gate (pretrade_gate.pre_trade_check).
 
 All offline: FakeMCP serves canned snapshots, FakeClient serves account
-state, fake_db serves the open-spreads book. Frozen config is respected —
-tests use values compatible with the shipped defaults (2% max loss/equity,
-5 concurrent, 10-21 DTE, 25% concentration is config.risk.max_concentration_pct).
+state, fake_db serves the open-spreads book.
 """
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
@@ -36,6 +35,7 @@ def test_happy_path_updates_plan(fake_db):
     assert result.plan.max_loss == 350.0
     assert result.facts["fresh_credit"] == 150.0
     assert result.facts["equity_at_check"] == 100_000.0
+    assert result.contracts >= 1
 
 
 def test_stale_quote_blocks(fake_db):
@@ -44,6 +44,17 @@ def test_stale_quote_blocks(fake_db):
     result = run(pre_trade_check(mcp, FakeClient(), plan))
     assert not result.allowed
     assert "stale" in result.reason
+
+
+def test_missing_quote_timestamp_blocks(fake_db):
+    plan = make_plan()
+    mcp = FakeMCP({
+        plan.short_symbol: {"latestQuote": {"bp": 1.9, "ap": 2.1}},  # no t
+        plan.long_symbol: snapshot(0.45, 0.55),
+    })
+    result = run(pre_trade_check(mcp, FakeClient(), plan))
+    assert not result.allowed
+    assert "no timestamp" in result.reason
 
 
 def test_credit_shrink_blocks(fake_db):
@@ -59,12 +70,12 @@ def test_small_shrink_passes_with_updated_credit(fake_db):
     mcp = make_mcp(plan)
     result = run(pre_trade_check(mcp, FakeClient(), plan))
     assert result.allowed
-    assert result.plan.credit_estimate == 150.0  # trades on the fresh number
+    assert result.plan.credit_estimate == 150.0
 
 
 def test_missing_quotes_block(fake_db):
     plan = make_plan()
-    mcp = FakeMCP({})  # no snapshots at all
+    mcp = FakeMCP({})
     result = run(pre_trade_check(mcp, FakeClient(), plan))
     assert not result.allowed
     assert "unavailable" in result.reason
@@ -74,18 +85,14 @@ def test_concurrent_cap_counts_intracycle_opens(fake_db):
     plan = make_plan()
     fake_db.extend({"underlying": f"T{i}", "max_loss": 300.0, "contracts": 1} for i in range(3))
     mcp = make_mcp(plan)
-    # 3 in DB + 2 opened earlier this cycle = 5 = at the cap → blocked
     result = run(pre_trade_check(mcp, FakeClient(), plan, opened_this_cycle=2))
     assert not result.allowed
     assert "concurrent" in result.reason
-    # sanity: with only 1 opened this cycle it passes
     result_ok = run(pre_trade_check(make_mcp(plan), FakeClient(), plan, opened_this_cycle=1))
     assert result_ok.allowed, result_ok.reasons
 
 
 def test_concentration_enforced_post_llm(fake_db):
-    """Regression: the inline gate omitted existing_exposure/underlying, so
-    the per-underlying cap only ran pre-LLM. It must run here too."""
     plan = make_plan()
     cap = pretrade_gate.risk_gate.config.risk.max_concentration_pct
     fake_db.append({"underlying": "SPY", "max_loss": 100_000.0 * cap, "contracts": 1})
@@ -101,6 +108,35 @@ def test_buying_power_floor(fake_db):
     result = run(pre_trade_check(mcp, FakeClient(buying_power=100.0), plan))
     assert not result.allowed
     assert "buying power" in result.reason
+
+
+def test_multi_contract_uses_total_max_loss(fake_db, capped_contracts):
+    """Gate must validate buying power for N contracts, not one."""
+    plan = make_plan()  # max_loss 350
+    mcp = make_mcp(plan)
+    # 5 contracts × 350 = 1750 — BP of 1000 must fail
+    result = run(pre_trade_check(
+        mcp, FakeClient(buying_power=1000.0), plan, contracts=5,
+    ))
+    assert not result.allowed
+    assert "buying power" in result.reason
+    assert result.contracts == 5
+
+
+def test_multi_contract_concentration(fake_db, capped_contracts):
+    plan = make_plan()  # max_loss 350
+    # Existing 18k exposure; 5×350=1750 → 19750 under 20k cap → pass
+    # 10×350=3500 → 21500 over 20k → fail
+    fake_db.append({"underlying": "SPY", "max_loss": 18000.0, "contracts": 1})
+    ok = run(pre_trade_check(
+        make_mcp(plan), FakeClient(), plan, contracts=5,
+    ))
+    assert ok.allowed, ok.reasons
+    bad = run(pre_trade_check(
+        make_mcp(plan), FakeClient(), plan, contracts=10,
+    ))
+    assert not bad.allowed
+    assert "concentration" in bad.reason
 
 
 def test_gate_fails_closed_on_internal_error(fake_db):

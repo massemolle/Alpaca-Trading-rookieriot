@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Hermes cron entry point — same lock/silent-delivery shape as
 # trading_bot/run_paper_cron.sh, simplified because bot.py already decides
-# for itself what's worth printing (only opens/closes/errors reach stdout;
-# see bot.py's own module docstring) rather than this wrapper having to
-# grep the output after the fact.
+# for itself what's worth printing (only opens/closes/errors reach stdout).
+# Failures now exit non-zero so monitoring can alert.
 set -uo pipefail
 cd "$(dirname "$0")"
 mkdir -p state
@@ -21,9 +20,10 @@ source .env
 set +a
 
 OUTPUT=$(python bot.py 2>&1) || {
-    echo "⚠️ OPTIONS AGENT ERROR:"
-    echo "$OUTPUT" | tail -20
-    exit 0
+    status=$?
+    echo "⚠️ OPTIONS AGENT ERROR (exit $status):"
+    echo "$OUTPUT" | tail -40
+    exit "$status"
 }
 
 if [ -n "$OUTPUT" ]; then

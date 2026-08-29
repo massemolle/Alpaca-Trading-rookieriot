@@ -84,6 +84,10 @@ def record_spread_open(
     max_loss: float,
     alpaca_order_ids: list[str],
     cycle_id: int,
+    *,
+    status: str = "open",
+    fill_credit: float | None = None,
+    client_order_id: str | None = None,
 ) -> int:
     with _connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -91,35 +95,78 @@ def record_spread_open(
             insert into {_schema()}.spreads
                 (underlying, direction, expiration, short_strike, long_strike,
                  short_symbol, long_symbol, contracts, credit_received, max_loss,
-                 alpaca_order_ids, cycle_id, status)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+                 alpaca_order_ids, cycle_id, status, fill_credit, client_order_id)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
                 underlying, direction, expiration, short_strike, long_strike,
                 short_symbol, long_symbol,
                 contracts, credit_received, max_loss, json.dumps(alpaca_order_ids), cycle_id,
+                status, fill_credit, client_order_id,
             ),
         )
         row = cur.fetchone()
         return row[0]
 
 
-def record_spread_close(spread_id: int, status: str, realized_pnl: float | None) -> None:
+def update_spread_status(
+    spread_id: int,
+    status: str,
+    *,
+    fill_credit: float | None = None,
+    realized_pnl: float | None = None,
+    alpaca_order_ids: list[str] | None = None,
+) -> None:
     with _connection() as conn, conn.cursor() as cur:
+        sets = ["status = %s"]
+        params: list[Any] = [status]
+        if fill_credit is not None:
+            sets.append("fill_credit = %s")
+            sets.append("credit_received = %s")
+            params.extend([fill_credit, fill_credit])
+        if realized_pnl is not None:
+            sets.append("realized_pnl = %s")
+            params.append(realized_pnl)
+        if alpaca_order_ids is not None:
+            sets.append("alpaca_order_ids = %s")
+            params.append(json.dumps(alpaca_order_ids))
+        if status.startswith("closed"):
+            sets.append("closed_at = now()")
+        params.append(spread_id)
         cur.execute(
-            f"""
-            update {_schema()}.spreads
-            set status = %s, realized_pnl = %s, closed_at = now()
-            where id = %s
-            """,
-            (status, realized_pnl, spread_id),
+            f"update {_schema()}.spreads set {', '.join(sets)} where id = %s",
+            params,
         )
+
+
+def record_spread_close(spread_id: int, status: str, realized_pnl: float | None) -> None:
+    update_spread_status(spread_id, status, realized_pnl=realized_pnl)
 
 
 def get_open_spreads() -> list[dict[str, Any]]:
     with _connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(f"select * from {_schema()}.spreads where status = 'open' order by opened_at")
+        return list(cur.fetchall())
+
+
+def get_spreads_by_status(status: str) -> list[dict[str, Any]]:
+    with _connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"select * from {_schema()}.spreads where status = %s order by opened_at",
+            (status,),
+        )
+        return list(cur.fetchall())
+
+
+def get_manageable_spreads() -> list[dict[str, Any]]:
+    """Open + pending (submitted but fill not yet confirmed)."""
+    with _connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"""select * from {_schema()}.spreads
+                where status in ('open', 'pending')
+                order by opened_at"""
+        )
         return list(cur.fetchall())
 
 
@@ -137,6 +184,12 @@ def _ensure_decision_journal_table() -> None:
                 pre_trade_rejections JSONB,
                 created_at TIMESTAMPTZ DEFAULT now()
             )
+        """)
+        # Forward-compat columns for fill tracking / pending state.
+        cur.execute(f"""
+            ALTER TABLE {_schema()}.spreads
+            ADD COLUMN IF NOT EXISTS fill_credit NUMERIC,
+            ADD COLUMN IF NOT EXISTS client_order_id TEXT
         """)
 
 

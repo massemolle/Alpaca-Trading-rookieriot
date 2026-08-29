@@ -167,8 +167,30 @@ def by_day(events: list[tuple]) -> dict:
 
 
 def policy_rule(day_events: list[tuple]) -> list[tuple]:
-    ranked = sorted(day_events, key=lambda e: e[3], reverse=True)  # strength
-    return ranked[:PER_DAY_BUDGET]
+    """Match live selector.shadow_select: strength × (credit/max_loss)."""
+    from selector import mechanical_score
+
+    scored = []
+    for ev in day_events:
+        symbol, i, direction, strength, spot, rvol, df = ev
+        dte0 = sum(PROD_PARAMS["dte_range"]) // 2
+        option_type = "put" if direction == "long" else "call"
+        short_k = bo.strike_for_delta(
+            spot=spot, target_delta=PROD_PARAMS["target_delta"],
+            dte_days=dte0, volatility=rvol, option_type=option_type,
+        )
+        long_k = short_k - bo.SPREAD_WIDTH if direction == "long" else short_k + bo.SPREAD_WIDTH
+        credit = (
+            bo.bs_price(spot=spot, strike=short_k, dte_days=dte0, volatility=rvol, option_type=option_type)
+            - bo.bs_price(spot=spot, strike=long_k, dte_days=dte0, volatility=rvol, option_type=option_type)
+        ) * 100
+        max_loss = bo.SPREAD_WIDTH * 100 - credit
+        score = mechanical_score({
+            "strength": strength, "credit_estimate": credit, "max_loss": max_loss,
+        })
+        scored.append((score, ev))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [ev for _s, ev in scored[:PER_DAY_BUDGET]]
 
 
 def policy_random(day_events: list[tuple], n: int, seed: int) -> list[tuple]:
@@ -208,32 +230,30 @@ def policy_claude(day_events: list[tuple], seed: int) -> list[tuple]:
 
 
 def persist(all_trades: dict[str, list], results: dict) -> None:
-    """Write per-trade history + summary to Supabase so the dashboard's Lab
-    page can show the full historic of simulated trades — inspectable
-    evidence, not just aggregate claims. Truncates previous lab runs."""
+    """Append a lab run (run_id) — never truncate prior experiments."""
     try:
         import db
+        from datetime import datetime, timezone
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         with db._connection() as conn, conn.cursor() as cur:
-            cur.execute(f"delete from {db._schema()}.lab_trades")
-            cur.execute(f"delete from {db._schema()}.lab_summary")
             for config, trades in all_trades.items():
                 for tr in sorted(trades, key=lambda x: x.entry_date):
                     cur.execute(
                         f"""insert into {db._schema()}.lab_trades
-                            (config, symbol, direction, entry_date, exit_date, credit, pnl, exit_reason)
-                            values (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (config, tr.symbol, tr.direction, tr.entry_date.isoformat(),
+                            (run_id, config, symbol, direction, entry_date, exit_date, credit, pnl, exit_reason)
+                            values (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (run_id, config, tr.symbol, tr.direction, tr.entry_date.isoformat(),
                          tr.exit_date.isoformat(), round(tr.credit * 100, 2), round(tr.pnl, 2), tr.exit_reason),
                     )
                 m = results.get(config)
                 if isinstance(m, dict) and "n" in m:
                     cur.execute(
                         f"""insert into {db._schema()}.lab_summary
-                            (config, n_trades, total_pnl, win_rate, avg_pnl, max_drawdown)
-                            values (%s,%s,%s,%s,%s,%s)""",
-                        (config, m["n"], m["total_pnl"], m["win_rate"], m["avg"], m["max_drawdown"]),
+                            (run_id, config, n_trades, total_pnl, win_rate, avg_pnl, max_drawdown)
+                            values (%s,%s,%s,%s,%s,%s,%s)""",
+                        (run_id, config, m["n"], m["total_pnl"], m["win_rate"], m["avg"], m["max_drawdown"]),
                     )
-        print("Per-trade history persisted to Supabase (lab_trades / lab_summary).")
+        print(f"Per-trade history appended to Supabase (run_id={run_id}).")
     except Exception as exc:
         print(f"WARNING: could not persist lab trades to Supabase: {exc}")
 

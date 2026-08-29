@@ -131,7 +131,10 @@ def should_force_close(
         return True, f"force-close: only {dte} day(s) to expiration"
 
     contest_end = datetime.fromisoformat(config.risk.contest_end_utc)
+    # Signal force-close once we are inside the final session window.
+    # Actual order submission still requires market hours (enforced in bot.py);
+    # this flag only marks the spread as needing a verified RTH close.
     if now_utc >= contest_end - timedelta(hours=2):
-        return True, "force-close: contest deadline is within 2 hours"
+        return True, "force-close: contest deadline is within 2 hours — close after options RTH open"
 
     return False, None

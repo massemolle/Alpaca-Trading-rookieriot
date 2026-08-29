@@ -93,3 +93,34 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.shadow_positions (
     opened_at        TIMESTAMPTZ DEFAULT now(),
     closed_at        TIMESTAMPTZ
 );
+
+-- Fill / pending tracking (weekend hardening)
+ALTER TABLE alpaca_hackathon.spreads
+    ADD COLUMN IF NOT EXISTS fill_credit NUMERIC,
+    ADD COLUMN IF NOT EXISTS client_order_id TEXT;
+
+-- Offline lab results (append-only; run_id scopes each experiment)
+CREATE TABLE IF NOT EXISTS alpaca_hackathon.lab_summary (
+    id            SERIAL PRIMARY KEY,
+    run_id        TEXT NOT NULL,
+    config        TEXT NOT NULL,
+    n_trades      INTEGER,
+    total_pnl     NUMERIC,
+    win_rate      NUMERIC,
+    avg_pnl       NUMERIC,
+    max_drawdown  NUMERIC,
+    run_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS alpaca_hackathon.lab_trades (
+    id            SERIAL PRIMARY KEY,
+    run_id        TEXT NOT NULL,
+    config        TEXT NOT NULL,
+    symbol        TEXT,
+    direction     TEXT,
+    entry_date    DATE,
+    exit_date     DATE,
+    credit        NUMERIC,
+    pnl           NUMERIC,
+    exit_reason   TEXT
+);

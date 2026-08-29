@@ -5,11 +5,12 @@ Submission for lablab.ai's **Alpaca AI Trading Agents Hackathon**
 Team **rookieriot**: Alex ([@Alejdro83](https://github.com/Alejdro83)), Guillaume ([@massemolle](https://github.com/massemolle)), [third teammate].
 Decision log with evidence for every architecture choice: [PLAN.md](PLAN.md) · failure-mode checklist: [PREMORTEM.md](PREMORTEM.md).
 
-An autonomous agent that trades **credit vertical spreads** on US equities:
-a bull put spread when its screening/signal layer sees a bullish setup, a
-bear call spread on a bearish one — both defined-risk from the moment they
-open, sized and gated by explicit code-level rules the LLM decision layer
-cannot override.
+An autonomous agent that trades **credit vertical spreads** on liquid index
+ETFs (default SPY/QQQ/IWM): a bull put when swing signals are long, a bear
+call when short — neutrals are rejected. Defined-risk from open, sized and
+gated by explicit quantity-aware rules the LLM cannot override. Judged as a
+**constrained-agent experiment** with a live mechanical/random ablation, not
+as proven LLM alpha.
 
 **Live dashboard**: https://alpaca-agent-dashboard.vercel.app (also opens
 as a Telegram Mini App via [@Alpaca_alejdro_bot](https://t.me/Alpaca_alejdro_bot) — same page, same code, either way).
@@ -36,38 +37,39 @@ as a Telegram Mini App via [@Alpaca_alejdro_bot](https://t.me/Alpaca_alejdro_bot
   formula, using the same realized-volatility estimate the entry filter
   already computes as the implied-vol proxy — labeled as a proxy
   throughout, not overclaiming real IV.
-- **Risk gates** (`risk_gate.py`) — hard, deterministic, code-level checks
-  applied *before* any candidate reaches the LLM: a daily-loss circuit
-  breaker, a max-concurrent-spreads cap, a max-loss-per-spread cap as % of
-  equity, and a DTE window. A candidate that fails any gate is never shown
-  to the model.
+- **Risk gates** (`risk_gate.py`, `pretrade_gate.py`, `sizing.py`,
+  `reconciler.py`) — quantity-aware max-loss / BP / concentration checks,
+  missing quote timestamps fail closed, broker↔DB reconciliation blocks
+  entries on mismatch, bounded limit orders with idempotent client IDs and
+  pending→filled tracking.
 - **Autonomous decision layer** (`llm_reasoner.py`) — among whatever
-  survives the gate, an LLM call picks which spread(s), if any, to actually
-  open this cycle, and produces the plain-language reasoning shown on the
-  dashboard.
-- **Deployment**: scheduled every ~30min during market hours by
-  [Hermes](https://github.com/) (the author's own agent-orchestration
-  system), the same mechanism already running the underlying equities bot
-  for months — chosen over a fresh cloud deployment specifically to reuse
-  proven scheduling/monitoring rather than rebuild it under a hackathon
-  deadline.
-- **Dashboard**: a small Next.js app, also usable as a Telegram Mini App,
-  reading the agent's live state (equity curve, open spreads, every cycle's
-  reasoning) from Supabase — see `../alpaca-agent-dashboard/`.
+  survives the gate, an LLM picks which spread(s) to open; hard-capped to
+  remaining budget. Same immutable menu feeds mechanical + random shadows
+  (`selector.py`, `shadow_book.py`).
+- **Deployment**: `run_options_cron.sh` (flock + non-zero exit on failure)
+  every ~30min during market hours.
+- **Dashboard**: Next.js app (Telegram Mini App capable) — equity curve,
+  spreads, cycle reasoning, ablation with abstention / gate-block / slippage
+  meta.
+- **Go-live**: keep `DRY_RUN=true` until the Monday rehearsal in
+  [`docs/runbooks/monday.md`](docs/runbooks/monday.md) passes; default
+  `MAX_CONTRACTS_PER_SPREAD=1`.
 
 ## Running it
 
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in the dedicated hackathon Alpaca account's keys
-python smoke_test.py SPY   # confirm MCP + options data + $100k account, before anything else
-python bot.py               # one cycle, manually
+cp .env.example .env   # dedicated hackathon Alpaca account; set DRY_RUN=true
+python smoke_test.py SPY   # MCP + options + ~$100k account
+DRY_RUN=true python bot.py # one dry cycle
+python -m pytest tests/ -q
+python verify_backtest.py
+python iv_diagnostic.py    # offline IV diagnostic (no live strike change)
 ```
 
-Scheduled execution: `run_options_cron.sh`, registered as a Hermes cron job
-(mirrors the schedule/lock/silent-delivery pattern of the author's existing
-equities bot).
+Scheduled execution: `run_options_cron.sh` (shared `state/bot.lock` with
+`emergency_flatten.py`). See `docs/runbooks/monday.md` for go-live.
 
 ## Files
 
@@ -120,37 +122,20 @@ confidence than the underlying check actually supported.
 
 ## Honest scope notes
 
-- **No broker-supplied Greeks.** Verified live against the real hackathon
-  account: `feed=opra` 403s with "OPRA agreement is not signed" (real-time
-  OPRA data needs Alpaca's paid Algo Trader Plus plan), and the free
-  `indicative` feed's snapshot has no `greeks` key at all. Delta is
-  computed via `black_scholes.py` using a realized-volatility proxy for
-  implied vol — a standard, well-understood substitution, not hidden
-  anywhere in the code or this document.
-- **`open_interest` is frequently `null`** on this account/feed, even for
-  genuinely liquid near-the-money SPY strikes (verified directly) — the
-  liquidity gate enforces it only when a real value comes back, leaning on
-  the bid-ask-spread check (which does return real, usable data) as the
-  effective liquidity signal.
-- Every field-name and parameter-shape assumption in this codebase (MCP
-  response nesting, `qty`/`ratio_qty` as strings, `position_intent`
-  requirements) has been verified directly against the real account's
-  actual responses, not just Alpaca's docs — several initial guesses were
-  wrong and are visible in git history alongside their fixes.
-- The LLM reasoning step can choose *not* to trade a risk-approved
-  candidate; it can never trade one that failed the gate. That asymmetry is
-  intentional.
+- **No broker-supplied Greeks.** Verified live: `feed=opra` needs paid OPRA;
+  free `indicative` has no `greeks`. Delta via `black_scholes.py` + realized-vol
+  proxy. Quote IV (`iv_diagnostic.py`) is shadow-only until promoted.
+- **ETF core only** for the judged book; broad equity scrape remains behind
+  `UNIVERSE_MODE=broad` for offline experiments.
+- **`open_interest` is frequently `null`** — liquidity leans on bid-ask when OI
+  is missing.
+- LLM may abstain; it cannot trade a failed gate. Shadows use the same menu and
+  aggregate max-loss budget; virtual fills are synthetic mid, not broker fills.
+- Frozen parameters (0.17δ, 10–21 DTE, $5, 50%/2×) are contest heuristics — do
+  not present as proven optima. No critic/extra LLM/crypto sleeve this weekend.
 
-## Roadmap — science layer (planned, NOT yet implemented)
+## Weekend hardening (landed)
 
-Landing as separate, individually-reviewed PRs during the contest week
-(nothing below exists in code yet):
-
-- `pretrade_gate.py` — second risk gate: re-fetch account & quotes AFTER the
-  LLM selects, re-check on current state, reject/resize before any order.
-- `ablation_pnl.py` — counterfactual P&L of the shadow mechanical selector
-  and a random-eligible baseline vs the LLM's picks, on identical candidates.
-- `attribution.py` — daily P&L decomposition vs a synthetic buy-SPY
-  benchmark: skill vs market.
-- `tests/chaos/` — stale quote, MCP timeout, malformed/error-shaped
-  responses, injection payloads: the PREMORTEM items as executable checks.
+- Quantity-aware sizing + pretrade gates; limit opens/closes; fill/pending
+  states; broker reconciliation; monitor mark ×100; market-hours ordinary
+  closes; cron fail-exit; unified selector; lab schema; ETF freeze + neutral reject.
