@@ -45,7 +45,8 @@ import executor_mcp
 import llm_reasoner
 import risk_gate
 from mcp_client import AlpacaMCP
-from spread_builder import SpreadPlan, _mid_from_snapshot, build_spread
+from pretrade_gate import _daily_pl, pre_trade_check
+from spread_builder import build_spread
 
 from pathlib import Path
 
@@ -312,107 +313,6 @@ async def find_candidates(
     return candidates, gate_rejections
 
 
-def _daily_pl(account: dict) -> tuple[float, float]:
-    """`AlpacaClient.get_account()` only returns equity/last_equity, not a
-    precomputed daily P&L — derived here rather than assuming a field the
-    underlying client doesn't actually provide.
-    """
-    equity = float(account["equity"])
-    last_equity = float(account["last_equity"])
-    pl = equity - last_equity
-    pl_pct = pl / last_equity if last_equity else 0.0
-    return pl, pl_pct
-
-
-async def _pre_trade_check(
-    mcp: AlpacaMCP,
-    plan: SpreadPlan,
-    account: dict,
-    open_count: int,
-) -> tuple[bool, str | None, SpreadPlan]:
-    """Last-second validation before sending an order to Alpaca.
-
-    Re-fetches fresh option quotes for both legs, recomputes the credit
-    estimate, and re-runs risk_gate.check_new_spread.  If the credit has
-    shrunk by more than 20 % relative to the original estimate the trade
-    is skipped — the market moved against us between candidate screening
-    and the LLM's decision.
-    """
-    result = await mcp.call(
-        "get_option_snapshot",
-        {"symbols": f"{plan.short_symbol},{plan.long_symbol}", "feed": "indicative"},
-    )
-    snap_by_symbol = (result or {}).get("data", {}).get("snapshots", {})
-    short_snap = snap_by_symbol.get(plan.short_symbol, {})
-    long_snap = snap_by_symbol.get(plan.long_symbol, {})
-
-    short_mid = _mid_from_snapshot(short_snap)
-    long_mid = _mid_from_snapshot(long_snap)
-    if short_mid is None or long_mid is None:
-        return False, "fresh quotes unavailable for one or both legs", plan
-
-    now = datetime.now(timezone.utc)
-    # Real bug caught 2026-08-27: this only logged a warning on a stale
-    # quote and traded on it anyway. A quote hours old (market-closed
-    # remnant, or a genuine feed outage) is exactly what produced a
-    # nonsensical spread (credit exceeding the strike width) that day —
-    # now a hard block, not just a log line.
-    for label, snap in [("short", short_snap), ("long", long_snap)]:
-        ts_str = snap.get("latestQuote", {}).get("t")
-        if ts_str:
-            try:
-                quote_ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                age = now - quote_ts
-                if age > timedelta(minutes=15):
-                    return False, f"{label} leg quote is {age} old (>15 min) — stale, refusing to trade on it", plan
-            except (ValueError, TypeError):
-                pass
-
-    fresh_credit = round((short_mid - long_mid) * 100, 2)
-    if fresh_credit <= 0:
-        return False, f"fresh credit is non-positive (${fresh_credit:.2f})", plan
-
-    shrink_pct = (plan.credit_estimate - fresh_credit) / plan.credit_estimate
-    if shrink_pct > 0.20:
-        return (
-            False,
-            f"credit shrank {shrink_pct:.0%} (original ${plan.credit_estimate:.2f} → fresh ${fresh_credit:.2f})",
-            plan,
-        )
-
-    width_dollars = abs(plan.short_strike - plan.long_strike) * 100
-    updated_max_loss = round(width_dollars - fresh_credit, 2)
-    if updated_max_loss <= 0:
-        # Same sanity check as spread_builder.build_spread — a fresh
-        # requote can hit this too, not just the initial build.
-        return False, f"fresh max_loss is non-positive (${updated_max_loss:.2f}), refusing to trade", plan
-    updated_plan = SpreadPlan(
-        underlying=plan.underlying,
-        direction=plan.direction,
-        expiration=plan.expiration,
-        short_strike=plan.short_strike,
-        long_strike=plan.long_strike,
-        short_symbol=plan.short_symbol,
-        long_symbol=plan.long_symbol,
-        credit_estimate=fresh_credit,
-        max_loss=updated_max_loss,
-    )
-
-    today = now.date()
-    check = risk_gate.check_new_spread(
-        equity=float(account["equity"]),
-        daily_pl_pct=float(account.get("daily_pl_pct") or 0.0),
-        open_spreads_count=open_count,
-        max_loss=updated_max_loss,
-        expiration=plan.expiration,
-        today=today,
-    )
-    if not check.allowed:
-        return False, f"risk gate rejected on fresh quotes: {check.reasons}", updated_plan
-
-    return True, None, updated_plan
-
-
 def _shadow_select(candidates: list[dict], remaining_budget: int) -> list[str]:
     """Mechanical baseline: rank by strength * (credit/max_loss), pick top N."""
     if not candidates or remaining_budget <= 0:
@@ -486,19 +386,23 @@ async def run_cycle() -> None:
 
             shadow_selected = _shadow_select(slim_candidates, remaining_budget)
 
+            opened_this_cycle = 0
             for c in candidates:
                 if c["ticker"] not in selected_tickers:
                     continue
                 plan = c["_plan"]
                 try:
-                    allowed, reason, plan = await _pre_trade_check(
-                        mcp, plan, account, len(open_spreads),
+                    gate = await pre_trade_check(
+                        mcp, client, plan, opened_this_cycle=opened_this_cycle,
                     )
-                    if not allowed:
-                        logger.info("Pre-trade check blocked %s: %s", plan.underlying, reason)
-                        open_notes.append(f"Pre-trade check blocked {plan.underlying}: {reason}")
-                        pre_trade_rejections.append({"ticker": c["ticker"], "reason": reason})
+                    if not gate.allowed:
+                        logger.info("Pre-trade check blocked %s: %s", plan.underlying, gate.reason)
+                        open_notes.append(f"Pre-trade check blocked {plan.underlying}: {gate.reason}")
+                        pre_trade_rejections.append(
+                            {"ticker": c["ticker"], "reasons": gate.reasons, "facts": gate.facts}
+                        )
                         continue
+                    plan = gate.plan
                     contracts = _optimal_contracts(
                         equity=float(account["equity"]),
                         max_loss_per_contract=plan.max_loss,
@@ -511,6 +415,7 @@ async def run_cycle() -> None:
                     # what got recorded in the DB — a genuine mismatch
                     # between what actually executed and what we'd report.
                     order_ids = await executor_mcp.open_spread(mcp, plan, contracts=contracts)
+                    opened_this_cycle += 1
                     cycle_id = db.record_cycle(slim_candidates, "opened", reasoning)
                     db.record_spread_open(
                         underlying=plan.underlying,
