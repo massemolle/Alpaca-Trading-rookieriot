@@ -68,3 +68,28 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.decision_journal (
     pre_trade_rejections JSONB,
     created_at           TIMESTAMPTZ DEFAULT now()
 );
+
+-- Live-ablation shadow book (PR4): virtual positions for the mechanical
+-- 'shadow' rule and a matched-rate 'random' policy, on the same
+-- gate-approved candidates the LLM chose from.
+CREATE TABLE IF NOT EXISTS alpaca_hackathon.shadow_positions (
+    id               SERIAL PRIMARY KEY,
+    cycle_id         INTEGER REFERENCES alpaca_hackathon.cycles(id),
+    policy           TEXT NOT NULL,
+    underlying       TEXT NOT NULL,
+    direction        TEXT NOT NULL,
+    expiration       DATE,
+    short_strike     NUMERIC,
+    long_strike      NUMERIC,
+    short_symbol     TEXT,
+    long_symbol      TEXT,
+    contracts        INTEGER,
+    credit_received  NUMERIC,
+    max_loss         NUMERIC,
+    status           TEXT NOT NULL DEFAULT 'open',
+    unrealized_mark  NUMERIC,
+    realized_pnl     NUMERIC,
+    same_as_llm      BOOLEAN DEFAULT FALSE,
+    opened_at        TIMESTAMPTZ DEFAULT now(),
+    closed_at        TIMESTAMPTZ
+);

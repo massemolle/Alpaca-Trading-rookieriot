@@ -45,6 +45,7 @@ import db
 import executor_mcp
 import llm_reasoner
 import risk_gate
+import shadow_book
 from mcp_client import AlpacaMCP
 from pretrade_gate import _daily_pl, pre_trade_check
 from spread_builder import build_spread
@@ -339,6 +340,7 @@ async def run_cycle() -> None:
 
     async with AlpacaMCP() as mcp:
         close_notes = await manage_open_spreads(mcp)
+        await shadow_book.manage_open(mcp)
 
         open_spreads = db.get_open_spreads()
         remaining_budget = max(0, config.risk.max_concurrent_spreads - len(open_spreads))
@@ -462,6 +464,16 @@ async def run_cycle() -> None:
                 gate_rejections=gate_rejections,
                 pre_trade_rejections=pre_trade_rejections,
             )
+
+        shadow_book.open_counterfactuals(
+            cycle_id=cycle_id,
+            candidates=candidates,
+            llm_selected=llm_selected,
+            shadow_selected=shadow_selected,
+            sizing_fn=_optimal_contracts,
+            equity=float(account["equity"]),
+            max_risk_pct=config.risk.max_loss_per_spread_pct,
+        )
 
         db.record_account_snapshot(
             equity=float(account["equity"]),

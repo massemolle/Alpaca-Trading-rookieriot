@@ -86,11 +86,36 @@ export async function getDashboardState() {
       `select equity, spy_price, snapshot_at from ${SCHEMA}.account_snapshots order by snapshot_at asc`
     );
 
+    // Live ablation: cumulative P&L per selection policy. The real book
+    // ('llm') comes from spreads; counterfactuals from shadow_positions.
+    // For open positions, unrealized = (credit - mark) x contracts; real
+    // book marks aren't stored per-spread, so its open P&L is reflected in
+    // account equity instead — we report realized + open counts per policy.
+    const shadow = await client.query(
+      `select policy,
+              coalesce(sum(realized_pnl) filter (where status <> 'open'), 0) as realized,
+              coalesce(sum((credit_received - unrealized_mark) * contracts)
+                       filter (where status = 'open' and unrealized_mark is not null), 0) as unrealized,
+              count(*) filter (where status = 'open') as open_count,
+              count(*) filter (where status <> 'open') as closed_count
+       from ${SCHEMA}.shadow_positions group by policy`
+    );
+    const llmBook = await client.query(
+      `select coalesce(sum(realized_pnl) filter (where status <> 'open'), 0) as realized,
+              count(*) filter (where status = 'open') as open_count,
+              count(*) filter (where status <> 'open') as closed_count
+       from ${SCHEMA}.spreads`
+    );
+
     return {
       latestSnapshot: snapshot.rows[0] ?? null,
       spreads: spreads.rows,
       cycles: cycles.rows,
       equityCurve: curve.rows,
+      ablation: {
+        llm: llmBook.rows[0] ?? null,
+        policies: shadow.rows,
+      },
     };
   } finally {
     client.release();

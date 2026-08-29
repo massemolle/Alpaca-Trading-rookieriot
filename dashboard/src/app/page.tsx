@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Shell } from '@/components/Shell';
 import { EquitySparkline } from '@/components/EquitySparkline';
 import { KpiRow } from '@/components/KpiRow';
+import { AblationPanel } from '@/components/AblationPanel';
 import { RiskGatesPanel } from '@/components/RiskGatesPanel';
 import { StatusBadges } from '@/components/StatusBadges';
 import { computeKpis, computeVsSpy } from '@/lib/stats';
@@ -41,6 +42,10 @@ interface DashboardState {
     error: string | null;
   }>;
   equityCurve: Array<{ equity: number; spy_price: number | null; snapshot_at: string }>;
+  ablation: {
+    llm: { realized: number; open_count: number; closed_count: number } | null;
+    policies: Array<{ policy: string; realized: number; unrealized: number; open_count: number; closed_count: number }>;
+  } | null;
 }
 
 const POLL_MS = 30_000;
@@ -175,6 +180,8 @@ export default function DashboardPage() {
           )}
         </>
       )}
+
+      <AblationPanel ablation={state.ablation ?? null} />
 
       <RiskGatesPanel />
 
