@@ -121,3 +121,22 @@ export async function getDashboardState() {
     client.release();
   }
 }
+
+export async function getLabState() {
+  const client = await getPool().connect();
+  try {
+    const [summary, trades] = await Promise.all([
+      client.query(
+        `select config, n_trades, total_pnl, win_rate, avg_pnl, max_drawdown, run_at
+         from ${SCHEMA}.lab_summary order by id`
+      ),
+      client.query(
+        `select config, symbol, direction, entry_date, exit_date, credit, pnl, exit_reason
+         from ${SCHEMA}.lab_trades order by entry_date desc, id desc limit 500`
+      ),
+    ]);
+    return { summary: summary.rows, trades: trades.rows };
+  } finally {
+    client.release();
+  }
+}

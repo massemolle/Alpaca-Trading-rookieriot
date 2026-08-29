@@ -185,6 +185,12 @@ export default function DashboardPage() {
 
       <RiskGatesPanel />
 
+      <p className="text-xs text-gray-500 mb-4">
+        <a href="/lab" className="underline text-gray-400">Lab →</a>{' '}
+        backtest incremental: cada componente de la estrategia medido por separado,
+        con el historial completo de trades simulados.
+      </p>
+
       <section>
         <h2 className="text-sm font-semibold text-gray-300 mb-2">Recent agent decisions</h2>
         {cycles.length === 0 ? (

@@ -207,6 +207,37 @@ def policy_claude(day_events: list[tuple], seed: int) -> list[tuple]:
     return picked
 
 
+def persist(all_trades: dict[str, list], results: dict) -> None:
+    """Write per-trade history + summary to Supabase so the dashboard's Lab
+    page can show the full historic of simulated trades — inspectable
+    evidence, not just aggregate claims. Truncates previous lab runs."""
+    try:
+        import db
+        with db._connection() as conn, conn.cursor() as cur:
+            cur.execute(f"delete from {db._schema()}.lab_trades")
+            cur.execute(f"delete from {db._schema()}.lab_summary")
+            for config, trades in all_trades.items():
+                for tr in sorted(trades, key=lambda x: x.entry_date):
+                    cur.execute(
+                        f"""insert into {db._schema()}.lab_trades
+                            (config, symbol, direction, entry_date, exit_date, credit, pnl, exit_reason)
+                            values (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (config, tr.symbol, tr.direction, tr.entry_date.isoformat(),
+                         tr.exit_date.isoformat(), round(tr.credit * 100, 2), round(tr.pnl, 2), tr.exit_reason),
+                    )
+                m = results.get(config)
+                if isinstance(m, dict) and "n" in m:
+                    cur.execute(
+                        f"""insert into {db._schema()}.lab_summary
+                            (config, n_trades, total_pnl, win_rate, avg_pnl, max_drawdown)
+                            values (%s,%s,%s,%s,%s,%s)""",
+                        (config, m["n"], m["total_pnl"], m["win_rate"], m["avg"], m["max_drawdown"]),
+                    )
+        print("Per-trade history persisted to Supabase (lab_trades / lab_summary).")
+    except Exception as exc:
+        print(f"WARNING: could not persist lab trades to Supabase: {exc}")
+
+
 def main() -> None:
     with_llm = "--with-llm" in sys.argv
     print(__doc__.split("HONESTY HEADER")[1].split("Signal scoring")[0])
@@ -216,6 +247,7 @@ def main() -> None:
     print(f"  {len(data)}/{len(bo.BASKET)} symbols usable\n")
 
     results = {}
+    all_trades: dict[str, list] = {}
 
     ladder = [
         ("L1 raw signals", dict(use_trend=False, use_vol=False)),
@@ -227,6 +259,7 @@ def main() -> None:
         events = find_events(data, **toggles)
         trades = simulate_events(events)
         results[name] = metrics(trades)
+        all_trades[name] = trades
         if name.startswith("L3"):
             l3_events = events
         print(f"{name:22s} events={len(events):4d}  {results[name]}")
@@ -234,22 +267,51 @@ def main() -> None:
     print("\nL4 selection policies (same L3 candidates, per-day budget "
           f"{PER_DAY_BUDGET}):")
     days = by_day(l3_events or [])
-    rule_picks, random_picks, claude_picks = [], [], []
+    rule_picks, claude_picks = [], []
     for day, evs in sorted(days.items()):
-        rule = policy_rule(evs)
-        rule_picks += rule
-        random_picks += policy_random(evs, len(rule), seed=hash(day) & 0xFFFF)
+        rule_picks += policy_rule(evs)
         if with_llm:
             try:
-                claude_picks += policy_claude(evs, seed=hash(day) & 0xFFFF)
+                claude_picks += policy_claude(evs, seed=day.toordinal())
             except Exception as exc:
                 print(f"  {day}: claude policy failed ({exc}) — skipping day")
 
-    for pname, picks in (("rule", rule_picks), ("random", random_picks)):
-        results[f"L4 {pname}"] = metrics(simulate_events(picks))
-        print(f"L4 {pname:8s} picks={len(picks):4d}  {results[f'L4 {pname}']}")
+    trades = simulate_events(rule_picks)
+    results["L4 rule"] = metrics(trades)
+    all_trades["L4 rule"] = trades
+    print(f"L4 rule     picks={len(rule_picks):4d}  {results['L4 rule']}")
+
+    # One random draw is noise ($984/$1269/$1129 across three seeds during
+    # development) — evaluate the random policy as a DISTRIBUTION over 20
+    # seeds and report mean/std; persist the median-seed draw's trades.
+    random_totals = []
+    median_trades = None
+    for offset in range(20):
+        picks = []
+        for day, evs in sorted(days.items()):
+            picks += policy_random(evs, len(policy_rule(evs)), seed=day.toordinal() + offset * 100_003)
+        trs = simulate_events(picks)
+        random_totals.append(round(sum(x.pnl for x in trs), 2))
+        if offset == 0:
+            median_trades = trs
+    import statistics as _st
+    results["L4 random(20 seeds)"] = {
+        "n": len(median_trades or []),
+        "total_pnl": round(_st.mean(random_totals), 2),
+        "win_rate": None,
+        "avg": None,
+        "max_drawdown": None,
+        "std": round(_st.stdev(random_totals), 2),
+        "min": min(random_totals),
+        "max": max(random_totals),
+    }
+    all_trades["L4 random(20 seeds)"] = median_trades or []
+    print(f"L4 random   20 seeds: mean={_st.mean(random_totals):,.2f} std={_st.stdev(random_totals):,.2f} "
+          f"min={min(random_totals):,.2f} max={max(random_totals):,.2f}")
     if with_llm:
-        results["L4 claude(masked)"] = metrics(simulate_events(claude_picks))
+        trades = simulate_events(claude_picks)
+        results["L4 claude(masked)"] = metrics(trades)
+        all_trades["L4 claude(masked)"] = trades
         print(f"L4 claude   picks={len(claude_picks):4d}  {results['L4 claude(masked)']}")
 
     spy = data.get("SPY")
@@ -257,6 +319,8 @@ def main() -> None:
         window = spy["close"].iloc[WARMUP:]
         results["SPY_buy_hold_pct"] = round(float(window.iloc[-1] / window.iloc[0] - 1) * 100, 2)
         print(f"\nSPY buy & hold over the same evaluated window: {results['SPY_buy_hold_pct']}%")
+
+    persist(all_trades, results)
 
     out_path = Path(__file__).resolve().parent / "state" / "backtest_results.json"
     out_path.write_text(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(),
