@@ -40,37 +40,37 @@ export function AblationPanel({ ablation }: { ablation: Ablation | null }) {
 
   return (
     <section className="mb-4">
-      <h2 className="text-sm font-semibold text-gray-300 mb-2">Ablación en vivo — ¿aporta la IA?</h2>
+      <h2 className="text-sm font-semibold text-gray-300 mb-2">Live ablation — does the AI add value?</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {llm && (
           <Cell
             name="Claude (real)"
             realized={Number(llm.realized)}
             unrealized={null}
-            note={`${llm.open_count} abierta(s) · ${llm.closed_count} cerrada(s) · P&L realizado; lo abierto vive en la curva de equity`}
+            note={`${llm.open_count} open · ${llm.closed_count} closed · realized P&L; open risk lives in the equity curve`}
           />
         )}
         {shadow && (
           <Cell
-            name="Regla mecánica (virtual)"
+            name="Mechanical rule (virtual)"
             realized={Number(shadow.realized)}
             unrealized={Number(shadow.unrealized)}
-            note={`${shadow.open_count} abierta(s) · ${shadow.closed_count} cerrada(s) · mismos candidatos, mismas salidas`}
+            note={`${shadow.open_count} open · ${shadow.closed_count} closed · same candidates, same exits`}
           />
         )}
         {random && (
           <Cell
-            name="Azar (virtual)"
+            name="Random (virtual)"
             realized={Number(random.realized)}
             unrealized={Number(random.unrealized)}
-            note={`${random.open_count} abierta(s) · ${random.closed_count} cerrada(s) · mismo nº de trades que la IA`}
+            note={`${random.open_count} open · ${random.closed_count} closed · same trade count as the AI`}
           />
         )}
       </div>
       <p className="text-[11px] text-gray-600 mt-1.5">
-        Cada ciclo, las tres políticas eligen entre los MISMOS candidatos aprobados por
-        los risk gates. Las virtuales se rellenan al crédito estimado y se cierran con
-        las mismas reglas. Si la IA no supera a la regla, este panel lo mostrará.
+        Every cycle, all three policies choose among the SAME risk-gate-approved
+        candidates. Virtual books fill at the estimated credit and close by the same
+        rules. If the AI doesn't beat the rule, this panel will show it.
       </p>
     </section>
   );

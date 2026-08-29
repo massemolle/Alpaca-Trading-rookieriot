@@ -187,8 +187,8 @@ export default function DashboardPage() {
 
       <p className="text-xs text-gray-500 mb-4">
         <a href="/lab" className="underline text-gray-400">Lab →</a>{' '}
-        backtest incremental: cada componente de la estrategia medido por separado,
-        con el historial completo de trades simulados.
+        incremental backtest: each strategy component measured separately,
+        with the full history of simulated trades.
       </p>
 
       <section>

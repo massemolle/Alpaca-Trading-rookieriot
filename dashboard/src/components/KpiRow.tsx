@@ -21,23 +21,23 @@ export function KpiRow({ kpis, vsSpy }: { kpis: KpiSummary; vsSpy?: number | nul
   return (
     <div className={`grid grid-cols-2 ${vsSpy == null ? "sm:grid-cols-4" : "sm:grid-cols-5"} gap-2 mb-4`}>
       <Tile
-        label="P&L realizado"
+        label="Realized P&L"
         value={`${pnlSign}$${kpis.totalRealizedPnl.toFixed(2)}`}
-        sub={`${pnlSign}${(kpis.totalRealizedPnlPct * 100).toFixed(2)}% del capital inicial`}
+        sub={`${pnlSign}${(kpis.totalRealizedPnlPct * 100).toFixed(2)}% of starting capital`}
         tone={pnlTone}
       />
       <Tile
         label="Win rate"
         value={kpis.winRate === null ? '—' : `${(kpis.winRate * 100).toFixed(0)}%`}
-        sub={kpis.closedCount > 0 ? `${kpis.closedCount} cerrada${kpis.closedCount === 1 ? '' : 's'}` : 'sin cierres aún'}
+        sub={kpis.closedCount > 0 ? `${kpis.closedCount} closed` : 'no closes yet'}
       />
       <Tile
-        label="Operaciones"
+        label="Trades"
         value={String(kpis.closedCount + kpis.openCount)}
-        sub={`${kpis.openCount} abierta${kpis.openCount === 1 ? '' : 's'} · ${kpis.closedCount} cerrada${kpis.closedCount === 1 ? '' : 's'}`}
+        sub={`${kpis.openCount} open · ${kpis.closedCount} closed`}
       />
       <Tile
-        label="P&L medio / trade"
+        label="Avg P&L / trade"
         value={kpis.avgPnlPerTrade === null ? '—' : `${kpis.avgPnlPerTrade >= 0 ? '+' : ''}$${kpis.avgPnlPerTrade.toFixed(2)}`}
         tone={kpis.avgPnlPerTrade === null ? 'neutral' : kpis.avgPnlPerTrade > 0 ? 'good' : kpis.avgPnlPerTrade < 0 ? 'bad' : 'neutral'}
       />
@@ -45,7 +45,7 @@ export function KpiRow({ kpis, vsSpy }: { kpis: KpiSummary; vsSpy?: number | nul
         <Tile
           label="vs SPY"
           value={`${vsSpy >= 0 ? '+' : ''}${(vsSpy * 100).toFixed(2)}%`}
-          sub="retorno cuenta − retorno SPY"
+          sub="account return − SPY return"
           tone={vsSpy > 0 ? 'good' : vsSpy < 0 ? 'bad' : 'neutral'}
         />
       )}

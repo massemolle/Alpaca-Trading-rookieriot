@@ -55,9 +55,9 @@ export function EquitySparkline({ points }: { points: Point[] }) {
       </svg>
       {spyPath && (
         <p className="text-[11px] text-gray-600 mt-1">
-          <span className="text-gray-400">━ cuenta</span>
+          <span className="text-gray-400">━ account</span>
           {' · '}
-          <span>┄ SPY (misma inversión inicial)</span>
+          <span>┄ SPY (same starting investment)</span>
         </p>
       )}
     </div>

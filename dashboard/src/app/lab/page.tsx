@@ -34,27 +34,27 @@ export default function LabPage() {
   return (
     <Shell>
       <div className="flex items-baseline justify-between mb-3">
-        <h1 className="text-lg font-bold">Lab — backtest incremental</h1>
+        <h1 className="text-lg font-bold">Lab — incremental backtest</h1>
         <a href="/" className="text-xs text-gray-400 underline">← dashboard</a>
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        Cada capa de la estrategia medida por separado sobre ~16 meses de barras
-        diarias reales. Economía de spreads con proxy Black-Scholes (sin cadenas
-        históricas en el plan gratuito): comparaciones RELATIVAS entre configs,
-        nunca afirmaciones absolutas de rendimiento. Código: backtest_lab.py.
+        Each strategy layer measured separately over ~16 months of real daily
+        bars. Spread economics use a Black-Scholes proxy (no historical option
+        chains on the free plan): RELATIVE comparisons between configs, never
+        absolute performance claims. Code: backtest_lab.py.
       </p>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
       <section className="mb-5">
-        <h2 className="text-sm font-semibold text-gray-300 mb-2">Escalera de componentes</h2>
+        <h2 className="text-sm font-semibold text-gray-300 mb-2">Component ladder</h2>
         <div className="overflow-x-auto rounded-lg border border-gray-800">
           <table className="w-full text-sm">
             <thead className="bg-gray-900/60 text-gray-400 text-xs">
               <tr>
                 <th className="text-left p-2">config</th><th className="text-right p-2">trades</th>
-                <th className="text-right p-2">P&L total</th><th className="text-right p-2">win%</th>
-                <th className="text-right p-2">medio</th><th className="text-right p-2">max DD</th>
+                <th className="text-right p-2">Total P&L</th><th className="text-right p-2">win%</th>
+                <th className="text-right p-2">avg</th><th className="text-right p-2">max DD</th>
               </tr>
             </thead>
             <tbody>
@@ -74,7 +74,7 @@ export default function LabPage() {
                 );
               })}
               {summary.length === 0 && !error && (
-                <tr><td className="p-3 text-gray-500" colSpan={6}>Sin datos aún — ejecuta backtest_lab.py</td></tr>
+                <tr><td className="p-3 text-gray-500" colSpan={6}>No data yet — run backtest_lab.py</td></tr>
               )}
             </tbody>
           </table>
@@ -83,13 +83,13 @@ export default function LabPage() {
 
       <section>
         <div className="flex items-center gap-2 mb-2">
-          <h2 className="text-sm font-semibold text-gray-300">Historial de trades simulados ({shown.length})</h2>
+          <h2 className="text-sm font-semibold text-gray-300">Simulated trade history ({shown.length})</h2>
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="bg-gray-900 border border-gray-700 rounded text-xs p-1 text-gray-300"
           >
-            <option value="all">todas las configs</option>
+            <option value="all">all configs</option>
             {configs.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
@@ -97,10 +97,10 @@ export default function LabPage() {
           <table className="w-full text-xs">
             <thead className="bg-gray-900/60 text-gray-400 sticky top-0">
               <tr>
-                <th className="text-left p-2">config</th><th className="text-left p-2">símbolo</th>
-                <th className="text-left p-2">dirección</th><th className="text-left p-2">entrada</th>
-                <th className="text-left p-2">salida</th><th className="text-right p-2">crédito</th>
-                <th className="text-right p-2">P&L</th><th className="text-left p-2">motivo</th>
+                <th className="text-left p-2">config</th><th className="text-left p-2">symbol</th>
+                <th className="text-left p-2">direction</th><th className="text-left p-2">entry</th>
+                <th className="text-left p-2">exit</th><th className="text-right p-2">credit</th>
+                <th className="text-right p-2">P&L</th><th className="text-left p-2">reason</th>
               </tr>
             </thead>
             <tbody>

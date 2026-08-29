@@ -7,20 +7,20 @@
 // the same claim the code itself makes, not a display of "current mutable
 // settings."
 const GATES: Array<[string, string]> = [
-  ['Delta objetivo (pata corta)', '0.17'],
-  ['Ventana DTE', '10 – 21 días'],
-  ['Máx. pérdida por spread', '2% del equity'],
-  ['Circuit breaker diario', '-3% de P&L'],
-  ['Máx. spreads concurrentes', '5'],
-  ['Profit target', '50% del crédito recibido'],
-  ['Stop', '2× el crédito recibido'],
-  ['Cierre forzado', 'DTE ≤ 1 o ≤2h para el fin del concurso'],
+  ['Target delta (short leg)', '0.17'],
+  ['DTE window', '10 – 21 days'],
+  ['Max loss per spread', '2% of equity'],
+  ['Daily circuit breaker', '-3% P&L'],
+  ['Max concurrent spreads', '5'],
+  ['Profit target', '50% of credit received'],
+  ['Stop', '2× credit received'],
+  ['Forced close', 'DTE ≤ 1 or ≤2h before contest end'],
 ];
 
 export function RiskGatesPanel() {
   return (
     <section className="mb-4">
-      <h2 className="text-sm font-semibold text-gray-300 mb-2">Risk gates (código, no la IA)</h2>
+      <h2 className="text-sm font-semibold text-gray-300 mb-2">Risk gates (code, not the AI)</h2>
       <div className="rounded-lg border border-gray-800 bg-gray-900/20 p-3">
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
           {GATES.map(([label, value]) => (
@@ -31,8 +31,8 @@ export function RiskGatesPanel() {
           ))}
         </dl>
         <p className="text-[11px] text-gray-600 mt-2">
-          Un candidato que falla cualquiera de estos nunca llega a la capa de
-          decisión de la IA.
+          A candidate that fails any of these never reaches the AI decision
+          layer.
         </p>
       </div>
     </section>

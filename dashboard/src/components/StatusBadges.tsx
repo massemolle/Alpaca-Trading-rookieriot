@@ -26,11 +26,11 @@ function isMarketLikelyOpen(now: Date): boolean {
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return 'hace segundos';
-  if (mins < 60) return `hace ${mins} min`;
+  if (mins < 1) return 'seconds ago';
+  if (mins < 60) return `${mins} min ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `hace ${hours}h`;
-  return `hace ${Math.floor(hours / 24)}d`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 export function StatusBadges({ lastCycleAt }: { lastCycleAt: string | null }) {
@@ -51,10 +51,10 @@ export function StatusBadges({ lastCycleAt }: { lastCycleAt: string | null }) {
         }`}
       >
         <span className={`h-1.5 w-1.5 rounded-full ${open ? 'bg-emerald-400' : 'bg-gray-500'}`} />
-        {open === null ? 'Comprobando mercado…' : open ? 'Mercado abierto (aprox.)' : 'Mercado cerrado (aprox.)'}
+        {open === null ? 'Checking market…' : open ? 'Market open (approx.)' : 'Market closed (approx.)'}
       </span>
       {lastCycleAt && (
-        <span className="text-gray-500">Último ciclo del agente: {timeAgo(lastCycleAt)}</span>
+        <span className="text-gray-500">Last agent cycle: {timeAgo(lastCycleAt)}</span>
       )}
     </div>
   );
