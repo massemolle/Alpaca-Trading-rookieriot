@@ -48,10 +48,32 @@ second-guess them, only work within them:
   max loss) over simply taking every candidate available.
 - Skipping a mediocre setup is a valid, often correct, decision.
 
+Each candidate carries a `facts` list — every number with its provenance \
+({fact_id, value, source, quality, derivation}). When your reasoning uses a number, \
+cite its fact id in square brackets, e.g. "the $145 credit [SPY_CREDIT_EST] against \
+$355 max loss [SPY_MAX_LOSS]". Never introduce numbers that have no fact id — if a \
+figure you want isn't in the facts, reason without it. Note the quality field: \
+`indicative_delayed` means the quote may be stale/modified (free feed).
+
 Respond with ONLY a JSON object: {"selected": ["TICKER", ...], "reasoning": "..."}. \
 `reasoning` must be a few real sentences explaining the specific choice — this text \
 is shown verbatim on the project's public dashboard as the agent's own explanation, \
 so make it genuinely informative, not generic filler."""
+
+
+def _check_citations(candidates: list[dict], reasoning: str) -> None:
+    """Soft integrity check (PLAN D10): warn when the reasoning cites fact ids
+    that were never provided. Never blocks — the fail-safe path is abstention
+    on parse errors, not on citation style."""
+    import re
+
+    provided = {f["fact_id"] for c in candidates for f in c.get("facts", [])}
+    if not provided:
+        return
+    cited = set(re.findall(r"\[([A-Z0-9_.]+)\]", reasoning))
+    unknown = cited - provided
+    if unknown:
+        logger.warning("Reasoning cited unknown fact ids: %s", sorted(unknown))
 
 
 REASONER_MODE = os.environ.get("REASONER_MODE", "openai")  # "openai" | "claude_code"
@@ -105,7 +127,9 @@ def decide(candidates: list[dict], remaining_budget: int) -> dict:
 
     if REASONER_MODE == "claude_code":
         try:
-            return _decide_via_claude_code(candidates, remaining_budget)
+            parsed = _decide_via_claude_code(candidates, remaining_budget)
+            _check_citations(candidates, parsed["reasoning"])
+            return parsed
         except Exception as exc:
             logger.exception("Claude Code reasoning failed, defaulting to no trade")
             return {"selected": [], "reasoning": f"LLM reasoning step failed ({exc}); no trade taken this cycle."}
@@ -138,6 +162,7 @@ def decide(candidates: list[dict], remaining_budget: int) -> dict:
         parsed = json.loads(content)
         assert isinstance(parsed.get("selected"), list)
         assert isinstance(parsed.get("reasoning"), str)
+        _check_citations(candidates, parsed["reasoning"])
         return parsed
     except Exception as exc:
         logger.exception("LLM reasoning step failed, defaulting to no trade")

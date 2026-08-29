@@ -302,6 +302,27 @@ async def find_candidates(
             logger.info("%s rejected by risk gate: %s", sig.ticker, check.reasons)
             gate_rejections.append({"ticker": sig.ticker, "reasons": check.reasons})
             continue
+        # Fact provenance (PLAN D10): every number the LLM will see, tagged
+        # with where it came from. The reasoner is instructed to cite
+        # [fact_id]s; the journal stores them with the candidate.
+        as_of = datetime.now(timezone.utc).isoformat()
+        tkr = sig.ticker
+        facts = [
+            {"fact_id": f"{tkr}_SIGNAL_STRENGTH", "value": sig.strength, "as_of": as_of,
+             "source": "signals.swing", "quality": "computed", "derivation": None},
+            {"fact_id": f"{tkr}_REALIZED_VOL", "value": round(float(realized_vol), 4), "as_of": as_of,
+             "source": "signals.indicators", "quality": "computed",
+             "derivation": "20d ATR% annualized — used as IV proxy (no broker Greeks on this feed)"},
+            {"fact_id": f"{tkr}_SPOT_MID", "value": round(spot_mid, 2), "as_of": as_of,
+             "source": "alpaca_stock_quote", "quality": "realtime_iex", "derivation": "bid/ask mid"},
+            {"fact_id": f"{tkr}_CREDIT_EST", "value": plan.credit_estimate, "as_of": as_of,
+             "source": "alpaca_mcp_option_snapshot", "quality": "indicative_delayed",
+             "derivation": "(short mid - long mid) x 100, per contract"},
+            {"fact_id": f"{tkr}_MAX_LOSS", "value": plan.max_loss, "as_of": as_of,
+             "source": "computed", "quality": "computed", "derivation": "strike width x 100 - credit"},
+            {"fact_id": f"{tkr}_DTE", "value": (plan.expiration - today).days, "as_of": as_of,
+             "source": "computed", "quality": "computed", "derivation": "expiration - today, in code"},
+        ]
         candidates.append({
             "ticker": sig.ticker,
             "direction": sig.direction,
@@ -310,6 +331,7 @@ async def find_candidates(
             "credit_estimate": plan.credit_estimate,
             "max_loss": plan.max_loss,
             "expiration": plan.expiration.isoformat(),
+            "facts": facts,
             "_plan": plan,
         })
     return candidates, gate_rejections

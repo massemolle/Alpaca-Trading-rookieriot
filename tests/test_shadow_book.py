@@ -68,3 +68,17 @@ def test_never_raises(monkeypatch):
         cycle_id=1, candidates=_candidates(["AAA"]), llm_selected=["AAA"],
         shadow_selected=["AAA"], sizing_fn=_sizing, equity=1.0, max_risk_pct=0.02,
     )  # swallowed, logged
+
+
+def test_citation_check_warns_on_unknown_ids(caplog):
+    import logging
+    import llm_reasoner
+
+    cands = [{"ticker": "SPY", "facts": [{"fact_id": "SPY_CREDIT_EST"}]}]
+    with caplog.at_level(logging.WARNING):
+        llm_reasoner._check_citations(cands, "credit [SPY_CREDIT_EST] and made-up [SPY_IV_RANK]")
+    assert "SPY_IV_RANK" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        llm_reasoner._check_citations(cands, "only real [SPY_CREDIT_EST]")
+    assert caplog.text == ""
