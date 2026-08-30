@@ -26,6 +26,16 @@ consistent: if you change behavior, update the tests that describe it.
 - `PLAN.md` (decisions D1–D19 and their rationale), `NIGHTLY.md` (your own
   previous entries, if any), `README.md`.
 
+## Your skills
+This repo provides skills — use them instead of improvising the procedure:
+- `analyze-regret` — ALWAYS run this reasoning first: pipeline vs judge, from
+  ablation + menu_regret evidence.
+- `tune-reasoner-prompt` — the safe way to change the day-trader's prompt.
+- `run-lab-experiment` — offline-test a parameter hypothesis before a live edit.
+You may refine a skill file itself if tonight's work exposed a flaw in the
+procedure — justify it in NIGHTLY.md. Skills never override the hard rules
+below; `CLAUDE.md` conventions apply to everything you do.
+
 ## Your mission
 Improve the trading algorithm based on the day's evidence. In scope:
 signal scoring and filters (`signals/`, screening thresholds), candidate
