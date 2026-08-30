@@ -5,6 +5,13 @@ diagnose second. The market will still be there.
 
 ## Pre-open checklist (before 13:30 UTC / 15:30 CEST)
 
+> **Verified Sunday Aug 30:** keys in `.env` open **PA34CFYP0MIZ** (our account, not
+> Alex's) — wrong-account guard passes, equity $100,000 flat, options level 3.
+> Clean start executed (`reset_clean_start.py --yes`): history wiped, fresh
+> baseline snapshot recorded, dry cycle green, dashboard clean.
+> **Go-live rule (approved): flip `DRY_RUN=false` after the FIRST clean dry
+> cycle (~15:45 Paris), not after a full dry day.**
+
 - [ ] `DRY_RUN=true` in `.env` until the controlled one-contract rehearsal passes
 - [ ] Dedicated ~$100k paper account; options approval enabled; keys only for this account
 - [ ] Schema applied: `supabase/alpaca_hackathon_schema.sql` (includes `fill_credit`,
