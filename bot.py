@@ -413,6 +413,18 @@ async def run_cycle() -> None:
     account["daily_pl"] = daily_pl
     account["daily_pl_pct"] = daily_pl_pct
 
+    # Options approval level (2026-08-30, added after cross-checking a
+    # sibling project's own hardening pass): 3 = "Spreads/Straddles",
+    # required for every multi-leg order this bot places. Fail-closed on a
+    # missing/unreadable value, same convention as every other gate here.
+    options_level = account.get("options_trading_level")
+    options_level_ok = options_level is not None and options_level >= 3
+    if not options_level_ok:
+        logger.error(
+            "options_trading_level=%r, need >=3 (Spreads/Straddles) for multi-leg orders -- "
+            "skipping candidate screening this cycle", options_level,
+        )
+
     async with AlpacaMCP() as mcp:
         close_notes = await manage_open_spreads(mcp, client, market_open=market_open)
         await shadow_book.manage_open(mcp)
@@ -424,10 +436,12 @@ async def run_cycle() -> None:
         candidates: list[dict] = []
         slim_candidates: list[dict] = []
         decision = "skipped"
-        reasoning = (
-            "No eligible candidates this cycle." if market_open
-            else "Market is closed — not screening for new candidates this cycle."
-        )
+        if not options_level_ok:
+            reasoning = f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
+        elif market_open:
+            reasoning = "No eligible candidates this cycle."
+        else:
+            reasoning = "Market is closed — not screening for new candidates this cycle."
         gate_rejections: list[dict] = []
         pre_trade_rejections: list[dict] = []
         shadow_selected: list[str] = []
@@ -436,7 +450,7 @@ async def run_cycle() -> None:
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
 
-        if remaining_budget > 0 and market_open:
+        if remaining_budget > 0 and market_open and options_level_ok:
             candidates, gate_rejections = await find_candidates(
                 mcp, client, account, len(open_spreads),
             )
