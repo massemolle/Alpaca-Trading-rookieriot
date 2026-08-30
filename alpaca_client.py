@@ -47,6 +47,40 @@ def _retry(fn, *args, **kwargs):
     raise RuntimeError("Max retries exceeded")
 
 
+# Real incident (2026-08-30): this instance's dashboard was found live-
+# displaying the OTHER instance's real judged-account equity/position on
+# every cycle, ongoing -- not a one-time historical artifact. Root cause
+# was never pinned down from the code side alone (no ALPACA_* value is
+# ever committed, by design), which is exactly the failure mode this
+# guards against: whatever credential actually resolves at runtime, in
+# whichever environment this happens to run in, must never be either
+# team's OTHER real account. Both are listed so this catches a mix-up in
+# either direction, not just the one already observed. This is a hard
+# stop, not a warning -- account identity mistakes are exactly the class
+# of error a log line gets scrolled past.
+_FORBIDDEN_ACCOUNT_IDS = {
+    "5e64a2ea-523c-4ae4-b23f-ba38d38141ed",  # PA3RJ9729ZDX -- the OTHER instance's judged account
+}
+_FORBIDDEN_ACCOUNT_NUMBERS = {
+    "PA3RJ9729ZDX",
+}
+
+
+def _refuse_if_wrong_account(acct: Any) -> None:
+    acct_id = str(getattr(acct, "id", "")).lower()
+    acct_number = str(getattr(acct, "account_number", ""))
+    if acct_id in {a.lower() for a in _FORBIDDEN_ACCOUNT_IDS} or acct_number in _FORBIDDEN_ACCOUNT_NUMBERS:
+        raise RuntimeError(
+            f"REFUSING TO PROCEED: connected Alpaca account (id={acct_id}, "
+            f"number={acct_number}) is the OTHER team instance's real judged "
+            f"account, not this instance's own PA34CFYP0MIZ. Check "
+            f"ALPACA_API_KEY/ALPACA_SECRET_KEY in whatever environment this "
+            f"is actually running in (Vercel env vars, cron env, etc.) -- "
+            f"this is almost certainly a leftover/copied credential, not a "
+            f"real account issue on Alpaca's side."
+        )
+
+
 class AlpacaClient:
     def __init__(self) -> None:
         cfg = config.alpaca
@@ -62,7 +96,10 @@ class AlpacaClient:
 
     def get_account(self) -> dict[str, Any]:
         acct = _retry(self._trading.get_account)
+        _refuse_if_wrong_account(acct)
         return {
+            "id": str(acct.id),
+            "account_number": acct.account_number,
             "equity": float(acct.equity),
             "last_equity": float(acct.last_equity),
             "cash": float(acct.cash),
