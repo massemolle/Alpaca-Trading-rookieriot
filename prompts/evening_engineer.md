@@ -9,7 +9,12 @@ fails, everything you did is reverted automatically. So leave the tree
 consistent: if you change behavior, update the tests that describe it.
 
 ## Read first
-- `state/evening_context.json` — today's cycles, decision journal (with the
+- `state/evening_context.json` — includes `previous_session`: your last
+  session's review and, if it was REVERTED, the exact test failures from the
+  gate log. If a previous attempt was reverted, either fix what actually
+  broke (run nothing — reason from the failures and the code) or choose a
+  different theme; never resubmit the same diff unchanged.
+- also in that file: today's cycles, decision journal (with the
   reasoner's cited facts), real positions, shadow/random counterfactual
   books, account snapshots, and the backtest lab summary.
 - `PLAN.md` (decisions D1–D19 and their rationale), `NIGHTLY.md` (your own
