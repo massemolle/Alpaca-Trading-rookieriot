@@ -73,7 +73,7 @@ export async function getDashboardState() {
       ),
       client.query<Spread>(
         `select id, underlying, direction, expiration, short_strike, long_strike,
-                contracts, credit_received, max_loss, status, realized_pnl, opened_at, closed_at
+                contracts, credit_received, est_credit, fill_credit, max_loss, status, realized_pnl, opened_at, closed_at
          from ${SCHEMA}.spreads order by opened_at desc limit 50`
       ),
       client.query<Cycle>(
@@ -203,6 +203,29 @@ export async function getLabState() {
       ),
     ]);
     return { summary: summary.rows, trades: trades.rows };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getAuditState() {
+  const client = await getPool().connect();
+  try {
+    const [journal, nightly] = await Promise.all([
+      client.query(
+        `select j.id, j.cycle_id, j.candidates, j.llm_selected, j.llm_reasoning,
+                j.shadow_selected, j.gate_rejections, j.pre_trade_rejections, j.created_at,
+                c.decision, c.error
+         from ${SCHEMA}.decision_journal j
+         left join ${SCHEMA}.cycles c on c.id = j.cycle_id
+         order by j.id desc limit 60`
+      ),
+      client.query(
+        `select session_date, verdict, summary, gate_tail, created_at
+         from ${SCHEMA}.nightly_sessions order by id desc limit 14`
+      ),
+    ]);
+    return { journal: journal.rows, nightly: nightly.rows };
   } finally {
     client.release();
   }

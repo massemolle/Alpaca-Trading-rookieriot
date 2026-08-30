@@ -115,3 +115,19 @@ def test_limit_credit_price_applies_slippage():
     import executor_mcp
     # 150/contract → 1.50/share; 10% slip → 1.35
     assert executor_mcp.limit_credit_price(150.0, slippage_pct=0.10) == 1.35
+
+
+def test_macro_blackout_windows(monkeypatch):
+    from datetime import datetime, timezone
+    import risk_gate
+
+    inside = datetime(2026, 9, 4, 12, 30, tzinfo=timezone.utc)   # NFP release
+    outside = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
+    hit, reason = risk_gate.in_macro_blackout(inside)
+    assert hit and "blackout" in reason
+    hit, _ = risk_gate.in_macro_blackout(outside)
+    assert not hit
+    # env override + malformed entries are skipped, not fatal
+    monkeypatch.setenv("MACRO_BLACKOUTS", "garbage,2026-09-02T10:00/2026-09-02T11:00")
+    hit, _ = risk_gate.in_macro_blackout(datetime(2026, 9, 2, 10, 30, tzinfo=timezone.utc))
+    assert hit

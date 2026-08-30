@@ -88,6 +88,7 @@ def record_spread_open(
     status: str = "open",
     fill_credit: float | None = None,
     client_order_id: str | None = None,
+    est_credit: float | None = None,
 ) -> int:
     with _connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -95,15 +96,15 @@ def record_spread_open(
             insert into {_schema()}.spreads
                 (underlying, direction, expiration, short_strike, long_strike,
                  short_symbol, long_symbol, contracts, credit_received, max_loss,
-                 alpaca_order_ids, cycle_id, status, fill_credit, client_order_id)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 alpaca_order_ids, cycle_id, status, fill_credit, client_order_id, est_credit)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
                 underlying, direction, expiration, short_strike, long_strike,
                 short_symbol, long_symbol,
                 contracts, credit_received, max_loss, json.dumps(alpaca_order_ids), cycle_id,
-                status, fill_credit, client_order_id,
+                status, fill_credit, client_order_id, est_credit,
             ),
         )
         row = cur.fetchone()

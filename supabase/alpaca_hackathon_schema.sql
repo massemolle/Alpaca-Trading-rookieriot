@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.spreads (
     realized_pnl      NUMERIC,
     opened_at         TIMESTAMPTZ DEFAULT now(),
     closed_at         TIMESTAMPTZ,
+    est_credit        NUMERIC,  -- original estimate preserved for slippage reporting
     -- forward-compat (iron condor support seen in the live deployment)
     strategy          TEXT,
     call_short_strike NUMERIC,
@@ -123,4 +124,14 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.lab_trades (
     credit        NUMERIC,
     pnl           NUMERIC,
     exit_reason   TEXT
+);
+
+-- Nightly engineer audit trail (D19/D20): one row per evening session.
+CREATE TABLE IF NOT EXISTS alpaca_hackathon.nightly_sessions (
+    id           SERIAL PRIMARY KEY,
+    session_date DATE,
+    verdict      TEXT,      -- KEPT | REVERTED | NO-CHANGE
+    summary      TEXT,      -- engineer's own review (tail)
+    gate_tail    TEXT,      -- gate log tail (failures when REVERTED)
+    created_at   TIMESTAMPTZ DEFAULT now()
 );

@@ -28,6 +28,8 @@ interface DashboardState {
     long_strike: number;
     contracts: number;
     credit_received: number;
+    est_credit: number | null;
+    fill_credit: number | null;
     max_loss: number;
     status: string;
     realized_pnl: number | null;
@@ -150,6 +152,12 @@ export default function DashboardPage() {
                       short ${s.short_strike} / long ${s.long_strike} × {s.contracts} — credit $
                       {Number(s.credit_received).toFixed(2)}, max loss ${Number(s.max_loss).toFixed(2)}
                     </p>
+                    {s.est_credit != null && s.fill_credit != null && (
+                      <p className="text-[11px] mt-0.5 text-gray-500">
+                        execution: est ${Number(s.est_credit).toFixed(2)} → filled ${Number(s.fill_credit).toFixed(2)}{' '}
+                        ({(((Number(s.fill_credit) - Number(s.est_credit)) / Number(s.est_credit)) * 100).toFixed(1)}% slippage — real fills, not simulator gifts)
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -186,6 +194,10 @@ export default function DashboardPage() {
       <RiskGatesPanel />
 
       <p className="text-xs text-gray-500 mb-4">
+        <a href="/audit" className="underline text-gray-400">Audit log →</a>{' '}
+        every decision with the AI's full cited reasoning, gate rejections, and
+        the nightly engineer's self-modification trail.
+        <br />
         <a href="/lab" className="underline text-gray-400">Lab →</a>{' '}
         incremental backtest: each strategy component measured separately,
         with the full history of simulated trades.

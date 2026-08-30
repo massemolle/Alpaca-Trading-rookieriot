@@ -436,8 +436,11 @@ async def run_cycle() -> None:
         candidates: list[dict] = []
         slim_candidates: list[dict] = []
         decision = "skipped"
+        blackout, blackout_reason = risk_gate.in_macro_blackout()
         if not options_level_ok:
             reasoning = f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
+        elif blackout:
+            reasoning = f"No new positions: {blackout_reason}. Exits stay active."
         elif market_open:
             reasoning = "No eligible candidates this cycle."
         else:
@@ -450,7 +453,7 @@ async def run_cycle() -> None:
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
 
-        if remaining_budget > 0 and market_open and options_level_ok:
+        if remaining_budget > 0 and market_open and options_level_ok and not blackout:
             candidates, gate_rejections = await find_candidates(
                 mcp, client, account, len(open_spreads),
             )

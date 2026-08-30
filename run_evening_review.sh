@@ -56,9 +56,30 @@ if $gate_ok && ! git diff --quiet "$GIT_BEFORE" -- dashboard/; then
     (cd dashboard && npx next build) >> "$GATE_LOG" 2>&1 || gate_ok=false
 fi
 
+record_session() {  # verdict
+    python - "$1" <<'PYEOF'
+import sys
+import db
+verdict = sys.argv[1]
+from pathlib import Path
+review = Path("state/evening_review_last.md")
+gate = Path("state/evening_gate.log")
+with db._connection() as conn, conn.cursor() as cur:
+    cur.execute(
+        f"""insert into {db._schema()}.nightly_sessions (session_date, verdict, summary, gate_tail)
+            values (current_date, %s, %s, %s)""",
+        (verdict,
+         review.read_text()[-4000:] if review.exists() else None,
+         gate.read_text()[-1500:] if gate.exists() else None),
+    )
+print(f"nightly session recorded: {verdict}")
+PYEOF
+}
+
 if $gate_ok; then
     if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain=v1 2>/dev/null | grep -v '^?? state/')" ]; then
         echo "GATE PASSED — engineer made no code changes tonight"
+        record_session "NO-CHANGE" || true
     else
         git add -A -- . ':!state'
         git commit -m "Nightly engineer (Fable) $(date -u +%F): gate passed (compile + tests + dry cycle)
@@ -68,10 +89,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" || true
         git pull --rebase --autostash origin main >> "$GATE_LOG" 2>&1 || echo "WARNING: rebase failed — resolve manually"
         git push origin main >> "$GATE_LOG" 2>&1 || echo "WARNING: push failed — commit kept locally"
         echo "GATE PASSED — changes committed: $(git log --oneline -1)"
+        record_session "KEPT" || true
     fi
 else
     echo "GATE FAILED — reverting the engineer's changes (see $GATE_LOG)"
     git reset --hard "$GIT_BEFORE"
     git clean -fd -e state -e .env -e .venv -e dashboard/node_modules -e dashboard/.next >> "$GATE_LOG" 2>&1
+    record_session "REVERTED" || true
 fi
 tail -3 "$GATE_LOG" || true

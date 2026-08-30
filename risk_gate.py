@@ -138,3 +138,32 @@ def should_force_close(
         return True, "force-close: contest deadline is within 2 hours — close after options RTH open"
 
     return False, None
+
+
+# Macro-event blackout (2026-08-30, D20): no NEW positions in a window
+# around scheduled high-impact releases — we sell premium, and a violent
+# scheduled gap is exactly what hurts a fresh short spread. Exits are never
+# blocked. Windows are UTC ISO ranges, env-overridable. Defaults cover this
+# contest week: JOLTS Tue Sep 1 (14:00 UTC release) and NFP Fri Sep 4
+# (12:30 UTC release, hours before the 15:00 UTC submission deadline).
+import os as _os
+
+_DEFAULT_BLACKOUTS = (
+    "2026-09-01T13:30/2026-09-01T15:00,"
+    "2026-09-04T12:00/2026-09-04T13:45"
+)
+
+
+def in_macro_blackout(now_utc: datetime | None = None) -> tuple[bool, str | None]:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    raw = _os.environ.get("MACRO_BLACKOUTS", _DEFAULT_BLACKOUTS)
+    for window in filter(None, (w.strip() for w in raw.split(","))):
+        try:
+            start_s, end_s = window.split("/")
+            start = datetime.fromisoformat(start_s).replace(tzinfo=timezone.utc)
+            end = datetime.fromisoformat(end_s).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if start <= now_utc <= end:
+            return True, f"macro blackout window {window} UTC (scheduled release)"
+    return False, None
