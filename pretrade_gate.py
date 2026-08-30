@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 import db
 import risk_gate
 from config import config
+from screening import correlation_clusters
 from sizing import optimal_contracts
 from spread_builder import SpreadPlan, _mid_from_snapshot
 
@@ -138,10 +139,15 @@ async def _pre_trade_check_inner(
     fresh_open = db.get_open_spreads()
     open_count = len(fresh_open) + opened_this_cycle
     existing_exposure: dict[str, float] = {}
+    cluster_exposure: dict[str, float] = {}
     for s in fresh_open:
         u = s["underlying"]
         n = int(s.get("contracts") or 1)
-        existing_exposure[u] = existing_exposure.get(u, 0) + float(s.get("max_loss", 0)) * n
+        max_loss_total = float(s.get("max_loss", 0)) * n
+        existing_exposure[u] = existing_exposure.get(u, 0) + max_loss_total
+        cluster = correlation_clusters.cluster_for(u)
+        if cluster is not None:
+            cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
 
     if contracts is None:
         contracts = optimal_contracts(
@@ -184,6 +190,7 @@ async def _pre_trade_check_inner(
         today=now.date(),
         existing_exposure=existing_exposure,
         underlying=plan.underlying,
+        cluster_exposure=cluster_exposure,
     )
     if not check.allowed:
         return GateResult(

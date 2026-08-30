@@ -251,3 +251,21 @@ def record_account_snapshot(
             """,
             (equity, last_equity, cash, open_spreads_count, daily_pl, daily_pl_pct, spy_price),
         )
+
+
+def record_beta_weighted_delta(
+    net_delta: float,
+    beta_weighted_delta: float | None,
+    per_spread: list[dict],
+) -> None:
+    """See portfolio_beta.py — monitoring only, one row per cycle. Never
+    raises on its own (the caller already wraps this non-fatal)."""
+    with _connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            insert into {_schema()}.beta_weighted_delta_snapshots
+                (net_delta, beta_weighted_delta, per_spread)
+            values (%s, %s, %s)
+            """,
+            (net_delta, beta_weighted_delta, json.dumps(per_spread)),
+        )

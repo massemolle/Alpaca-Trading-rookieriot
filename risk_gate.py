@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from config import config
+from screening import correlation_clusters
 
 
 @dataclass
@@ -48,6 +49,7 @@ def check_new_spread(
     today: date,
     existing_exposure: dict[str, float] | None = None,
     underlying: str | None = None,
+    cluster_exposure: dict[str, float] | None = None,
 ) -> RiskCheckResult:
     reasons: list[str] = []
     limits = config.risk
@@ -86,6 +88,27 @@ def check_new_spread(
                 f"exceeds {limits.max_concentration_pct:.0%} concentration cap "
                 f"(${concentration_cap:.2f})"
             )
+
+    # Correlation-cluster cap (2026-08-30, adapted from a sibling project):
+    # the per-underlying concentration cap above does NOT catch five
+    # concurrent verticals across five different mega-cap tech names --
+    # those are not five independent bets in a broad selloff (pairwise
+    # correlations well-documented to spike toward ~0.9 in stress). See
+    # screening/correlation_clusters.py for cluster membership and the
+    # "not exhaustive" caveat -- a ticker in no cluster is simply
+    # uncovered by this gate, not a claim it's uncorrelated with anything.
+    if cluster_exposure is not None and underlying is not None:
+        cluster = correlation_clusters.cluster_for(underlying)
+        if cluster is not None:
+            projected_cluster_exposure = cluster_exposure.get(cluster, 0) + max_loss
+            cluster_cap = equity * limits.max_cluster_concentration_pct
+            if projected_cluster_exposure > cluster_cap:
+                reasons.append(
+                    f"projected exposure ${projected_cluster_exposure:.2f} for the "
+                    f"'{cluster}' cluster (adding {underlying}) exceeds the "
+                    f"{limits.max_cluster_concentration_pct:.0%} cluster cap "
+                    f"(${cluster_cap:.2f})"
+                )
 
     return RiskCheckResult(allowed=not reasons, reasons=reasons)
 
