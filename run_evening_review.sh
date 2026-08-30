@@ -49,6 +49,12 @@ python -m py_compile bot.py pretrade_gate.py executor_mcp.py llm_reasoner.py \
     reconciler.py benchmark.py backtest_lab.py >> "$GATE_LOG" 2>&1 || gate_ok=false
 $gate_ok && python -m pytest tests/ -q >> "$GATE_LOG" 2>&1 || gate_ok=false
 $gate_ok && DRY_RUN=true timeout 280 python bot.py >> "$GATE_LOG" 2>&1 || gate_ok=false
+# Dashboard build gate — only when the session touched dashboard/ (learned
+# 2026-08-30: a type mismatch reached Vercel because nothing built the
+# dashboard pre-push; production silently served a stale build for a day).
+if $gate_ok && ! git diff --quiet "$GIT_BEFORE" -- dashboard/; then
+    (cd dashboard && npx next build) >> "$GATE_LOG" 2>&1 || gate_ok=false
+fi
 
 if $gate_ok; then
     if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain=v1 2>/dev/null | grep -v '^?? state/')" ]; then

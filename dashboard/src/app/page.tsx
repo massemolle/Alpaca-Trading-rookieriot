@@ -43,8 +43,8 @@ interface DashboardState {
   }>;
   equityCurve: Array<{ equity: number; spy_price: number | null; snapshot_at: string }>;
   ablation: {
-    llm: { realized: number; open_count: number; closed_count: number } | null;
-    policies: Array<{ policy: string; realized: number; unrealized: number; open_count: number; closed_count: number }>;
+    llm: { realized: number | string; unrealized: number | string | null; open_count: number | string; closed_count: number | string } | null;
+    policies: Array<{ policy: string; realized: number | string; unrealized: number | string; open_count: number | string; closed_count: number | string }>;
   } | null;
 }
 
