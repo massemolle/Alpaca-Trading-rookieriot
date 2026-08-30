@@ -96,7 +96,9 @@ export async function getDashboardState() {
                        filter (where status = 'open' and unrealized_mark is not null), 0) as unrealized,
               count(*) filter (where status = 'open') as open_count,
               count(*) filter (where status <> 'open') as closed_count
-       from ${SCHEMA}.shadow_positions group by policy`
+       from ${SCHEMA}.shadow_positions
+       where policy in ('shadow', 'random')
+       group by policy`
     );
     const llmBook = await client.query(
       `select coalesce(sum(realized_pnl) filter (where status like 'closed%'), 0) as realized,

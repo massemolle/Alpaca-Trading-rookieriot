@@ -608,6 +608,19 @@ async def run_cycle() -> None:
             equity=float(account["equity"]),
             max_risk_pct=config.risk.max_loss_per_spread_pct,
         )
+        shadow_book.open_menu_book(
+            cycle_id=cycle_id,
+            candidates=candidates,
+            llm_selected=llm_selected,
+            sizing_fn=lambda **kw: optimal_contracts(
+                equity=kw["equity"],
+                max_loss_per_contract=kw["max_loss_per_contract"],
+                max_risk_pct=kw["max_risk_pct"],
+                max_contracts=config.risk.max_contracts_per_spread,
+            ),
+            equity=float(account["equity"]),
+            max_risk_pct=config.risk.max_loss_per_spread_pct,
+        )
 
         # Fresh broker equity AFTER any fills this cycle.
         try:

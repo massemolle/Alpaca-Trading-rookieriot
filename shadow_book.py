@@ -3,6 +3,11 @@
 Policies:
 - 'shadow': mechanical rule (selector.shadow_select)
 - 'random': matched trade count AND aggregate max-loss budget to the LLM
+- 'menu':   EVERY gate-approved candidate, picked or not — the full
+            counterfactual menu, so the evening review can measure regret
+            (profitable candidates the LLM dropped). Not an ablation arm:
+            it is not risk-matched, so it must never be summed against the
+            policy books above.
 
 Virtual fills use the candidate's credit_estimate (conservative synthetic mid)
 so policy attribution is comparable; real broker fills are reported separately
@@ -11,6 +16,7 @@ as execution quality on the live book.
 from __future__ import annotations
 
 import logging
+import os
 import random
 from datetime import date, datetime
 
@@ -129,6 +135,110 @@ def open_counterfactuals(
         )
     except Exception:
         logger.exception("shadow book open_counterfactuals failed (non-fatal)")
+
+
+def _menu_open_symbol_pairs() -> set:
+    with db._connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""select short_symbol, long_symbol from {db._schema()}.shadow_positions
+                where policy='menu' and status='open'"""
+        )
+        return {(r[0], r[1]) for r in cur.fetchall()}
+
+
+def open_menu_book(
+    cycle_id: int,
+    candidates: list[dict],
+    llm_selected: list[str],
+    sizing_fn,
+    equity: float,
+    max_risk_pct: float,
+) -> None:
+    """Virtually fill EVERY gate-approved candidate (policy='menu').
+
+    Dedup on the open (short, long) symbol pair — an unchanged menu must not
+    re-open the same spread every 30 minutes; a new episode starts only after
+    the old virtual position closed. MENU_BOOK_MAX_OPEN caps marking load.
+    """
+    try:
+        cap = int(os.environ.get("MENU_BOOK_MAX_OPEN", "20"))
+        already = _menu_open_symbol_pairs()
+        n_open = len(already)
+        for cand in candidates:
+            plan = cand.get("_plan")
+            if plan is None:
+                continue
+            pair = (plan.short_symbol, plan.long_symbol)
+            if pair in already:
+                continue
+            if n_open >= cap:
+                logger.info("menu book: cap %d reached — skipping %s", cap, plan.underlying)
+                continue
+            contracts = int(cand.get("contracts") or 0)
+            if contracts < 1:
+                contracts = sizing_fn(
+                    equity=equity,
+                    max_loss_per_contract=plan.max_loss,
+                    max_risk_pct=max_risk_pct,
+                )
+            if contracts < 1:
+                continue
+            _record_open(
+                cycle_id, "menu", cand, plan, contracts,
+                same_as_llm=cand.get("ticker") in llm_selected,
+            )
+            already.add(pair)
+            n_open += 1
+    except Exception:
+        logger.exception("menu book open failed (non-fatal)")
+
+
+def regret_summary(menu_rows: list[dict]) -> dict:
+    """Pure regret computation for the evening context.
+
+    outcome_usd per row: realized_pnl when closed; (credit − mark) × contracts
+    while open and marked; None when never marked. 'Dropped' = the LLM did not
+    take it (whatever the rule/random books did).
+    """
+    table = []
+    for r in menu_rows:
+        credit = float(r["credit_received"])
+        contracts = int(r.get("contracts") or 1)
+        if r.get("realized_pnl") is not None:
+            outcome = float(r["realized_pnl"])
+        elif r.get("unrealized_mark") is not None:
+            outcome = (credit - float(r["unrealized_mark"])) * contracts
+        else:
+            outcome = None
+        table.append({
+            "cycle_id": r.get("cycle_id"),
+            "underlying": r.get("underlying"),
+            "direction": r.get("direction"),
+            "short_strike": float(r["short_strike"]) if r.get("short_strike") is not None else None,
+            "long_strike": float(r["long_strike"]) if r.get("long_strike") is not None else None,
+            "expiration": str(r.get("expiration")),
+            "status": r.get("status"),
+            "taken_by_llm": bool(r.get("same_as_llm")),
+            "outcome_usd": round(outcome, 2) if outcome is not None else None,
+        })
+    dropped = [t for t in table if not t["taken_by_llm"] and t["outcome_usd"] is not None]
+    taken = [t for t in table if t["taken_by_llm"] and t["outcome_usd"] is not None]
+    dropped_pos = [t for t in dropped if t["outcome_usd"] > 0]
+    return {
+        "note": (
+            "Every gate-approved candidate is virtually tracked (policy='menu'), picked or "
+            "not. Regret = profitable candidates the LLM dropped. One lucky miss is noise — "
+            "act on patterns, and read the journal's cited reasoning for those cycles first."
+        ),
+        "rows": table,
+        "taken_count": len(taken),
+        "taken_total_usd": round(sum(t["outcome_usd"] for t in taken), 2),
+        "dropped_count": len(dropped),
+        "dropped_total_usd": round(sum(t["outcome_usd"] for t in dropped), 2),
+        "dropped_positive_count": len(dropped_pos),
+        "dropped_positive_total_usd": round(sum(t["outcome_usd"] for t in dropped_pos), 2),
+        "best_dropped": max(dropped, key=lambda t: t["outcome_usd"], default=None),
+    }
 
 
 async def manage_open(mcp) -> None:

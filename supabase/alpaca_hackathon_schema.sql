@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.decision_journal (
 
 -- Live-ablation shadow book (PR4): virtual positions for the mechanical
 -- 'shadow' rule and a matched-rate 'random' policy, on the same
--- gate-approved candidates the LLM chose from.
+-- gate-approved candidates the LLM chose from. Also holds the 'menu'
+-- policy: EVERY gate-approved candidate tracked for regret analysis —
+-- not risk-matched, so ablation queries must filter it out.
 CREATE TABLE IF NOT EXISTS alpaca_hackathon.shadow_positions (
     id               SERIAL PRIMARY KEY,
     cycle_id         INTEGER REFERENCES alpaca_hackathon.cycles(id),

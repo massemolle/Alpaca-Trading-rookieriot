@@ -11,6 +11,7 @@ from pathlib import Path
 import psycopg2.extras
 
 import db
+import shadow_book
 
 
 def _q(cur, sql: str) -> list[dict]:
@@ -28,7 +29,13 @@ def main() -> None:
                                           shadow_selected, gate_rejections, pre_trade_rejections, created_at
                                           from {s}.decision_journal order by id desc limit 12"""),
             "spreads_all": _q(cur, f"select * from {s}.spreads order by opened_at desc limit 30"),
-            "shadow_positions": _q(cur, f"select * from {s}.shadow_positions order by opened_at desc limit 60"),
+            "shadow_positions": _q(cur, f"""select * from {s}.shadow_positions
+                                           where policy in ('shadow','random')
+                                           order by opened_at desc limit 60"""),
+            "menu_regret": shadow_book.regret_summary(
+                _q(cur, f"""select * from {s}.shadow_positions where policy='menu'
+                            order by opened_at desc limit 100""")
+            ),
             "snapshots_recent": _q(cur, f"select * from {s}.account_snapshots order by snapshot_at desc limit 10"),
             "lab_summary": _q(cur, f"select * from {s}.lab_summary order by id"),
         }

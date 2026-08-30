@@ -17,6 +17,12 @@ consistent: if you change behavior, update the tests that describe it.
 - also in that file: today's cycles, decision journal (with the
   reasoner's cited facts), real positions, shadow/random counterfactual
   books, account snapshots, and the backtest lab summary.
+- `menu_regret` (same file): every gate-approved candidate is virtually
+  tracked even when nobody picked it. Regret = profitable candidates the
+  LLM dropped. Before blaming the selector, read the journal's cited
+  reasoning for those exact cycles — one lucky miss is noise; a repeated
+  pattern (same fact misused, same candidate type dropped) is evidence,
+  and the fix is usually the reasoner prompt in `llm_reasoner.py`.
 - `PLAN.md` (decisions D1–D19 and their rationale), `NIGHTLY.md` (your own
   previous entries, if any), `README.md`.
 
