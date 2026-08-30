@@ -19,6 +19,61 @@ def _q(cur, sql: str) -> list[dict]:
     return [dict(r) for r in cur.fetchall()]
 
 
+def _day_metrics(bars: list[dict]) -> dict:
+    """Objective end-of-day metrics from daily bars (oldest→newest applied
+    internally). Pure computation — unit-tested offline."""
+    import math
+
+    bars = sorted(bars, key=lambda b: b["timestamp"])
+    if len(bars) < 2:
+        return {}
+    last, prev = bars[-1], bars[-2]
+    closes = [float(b["close"]) for b in bars]
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))][-20:]
+    vol = None
+    if len(rets) >= 5:
+        mean = sum(rets) / len(rets)
+        var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+        vol = round(math.sqrt(var) * math.sqrt(252) * 100, 2)
+    vols20 = [int(b["volume"]) for b in bars[-21:-1]]
+    return {
+        "date": str(last["timestamp"])[:10],
+        "close": float(last["close"]),
+        "day_move_pct": round((float(last["close"]) / float(prev["close"]) - 1) * 100, 2),
+        "gap_open_pct": round((float(last["open"]) / float(prev["close"]) - 1) * 100, 2),
+        "day_range_pct": round((float(last["high"]) - float(last["low"])) / float(prev["close"]) * 100, 2),
+        "volume_vs_20d": round(int(last["volume"]) / (sum(vols20) / len(vols20)), 2) if vols20 else None,
+        "realized_vol_20d_pct_annualized": vol,
+    }
+
+
+def _market_day() -> dict:
+    """What the market actually did today, per universe ticker — fetched from
+    our own broker API at context-build time (credentials are still in the
+    env here; they are scrubbed only for the engineer session that reads the
+    resulting file). This is the engineer's substitute for 'reading the
+    news': bounded, sourced, reproducible numbers instead of feeds."""
+    try:
+        from datetime import timedelta
+
+        from alpaca.data.timeframe import TimeFrame
+
+        from alpaca_client import AlpacaClient
+        from config import config
+
+        client = AlpacaClient()
+        start = (datetime.now(timezone.utc) - timedelta(days=70)).strftime("%Y-%m-%d")
+        out = {}
+        for t in config.universe.tickers:
+            try:
+                out[t] = _day_metrics(client.get_bars(t, TimeFrame.Day, start=start, limit=60))
+            except Exception as exc:  # one bad ticker must not sink the section
+                out[t] = {"error": str(exc)}
+        return out
+    except Exception as exc:
+        return {"error": f"market_day unavailable: {exc}"}
+
+
 def main() -> None:
     s = db._schema()
     with db._connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -39,6 +94,7 @@ def main() -> None:
             "snapshots_recent": _q(cur, f"select * from {s}.account_snapshots order by snapshot_at desc limit 10"),
             "lab_summary": _q(cur, f"select * from {s}.lab_summary order by id"),
         }
+    ctx["market_day"] = _market_day()
     # Feed the previous session back in — especially a REVERTED one: the next
     # engineer must see what was tried and which tests it broke, or it will
     # repeat the same mistake nightly (learned from the first live run, where
