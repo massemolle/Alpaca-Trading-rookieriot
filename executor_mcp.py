@@ -79,22 +79,35 @@ def _extract_status(result) -> str:
 
 
 def _extract_filled_avg_price(result) -> float | None:
-    """Best-effort per-share net credit from a multi-leg fill (short premium
-    received minus long premium paid). Returns dollars-per-share; caller
-    multiplies by 100 for per-contract credit.
+    """Per-share NET CASH RECEIVED for this execution (sell legs minus buy
+    legs) -- positive means you were paid net (a real credit open, or a
+    close that happened to net a credit), negative means you paid net (a
+    real debit). Dollars-per-share; caller multiplies by 100.
+
+    This single sign convention is what makes it safe to reuse for both
+    open_spread (fill_credit = this value directly, since a credit open
+    should be net-received-positive) and close_spread (fill_debit =
+    -this value, since closing a credit spread is net-received-negative
+    but "debit paid" must be reported positive) -- callers must NOT treat
+    the raw return value as "the debit" without that sign flip.
+
+    Real bug found and fixed 2026-08-30 (verified against a real filled
+    mleg order on a sibling project sharing this exact alpaca-mcp-server
+    integration): the top-level `filled_avg_price`/`filled_avg_px` field
+    Alpaca returns uses the OPPOSITE convention -- "cost to acquire the
+    position" (negative for a net credit, e.g. a real order's top-level
+    value was -0.54 for what was actually a $0.54/share credit). The
+    per-leg computation below already gives the correct net-received sign
+    directly; the top-level fallback must be negated to match, or a credit
+    open gets recorded as a negative credit (or worse, silently flows into
+    close_spread's realized_pnl math with a sign flip nobody would notice
+    without cross-checking against the real broker fill, as happened here).
     """
     payload = _extract_order_payload(result)
     orders = payload if isinstance(payload, list) else [payload]
     for order in orders:
         if not isinstance(order, dict):
             continue
-        # Some MCP responses surface filled_avg_price at the mleg root.
-        avg = order.get("filled_avg_price") or order.get("filled_avg_px")
-        if avg is not None:
-            try:
-                return float(avg)
-            except (TypeError, ValueError):
-                pass
         legs = order.get("legs") or []
         credits = []
         debits = []
@@ -115,7 +128,22 @@ def _extract_filled_avg_price(result) -> float | None:
             else:
                 debits.append(price)
         if credits and debits:
-            return sum(credits) / len(credits) - sum(debits) / len(debits)
+            # SUM, not average -- verified against the real NVDA order
+            # referenced above: 0.93+0.54 (2 credit legs) - 0.59-0.34 (2
+            # debit legs) = 0.54, matching the real fill exactly. Averaging
+            # per side is currently harmless here (this project's spreads
+            # are always exactly 1 leg per side, where sum == average),
+            # but would silently halve the credit the moment any structure
+            # with more than one leg per side exists.
+            return sum(credits) - sum(debits)
+        # Last resort only: some MCP responses surface filled_avg_price at
+        # the mleg root instead of per-leg. Negated -- see docstring above.
+        avg = order.get("filled_avg_price") or order.get("filled_avg_px")
+        if avg is not None:
+            try:
+                return -float(avg)
+            except (TypeError, ValueError):
+                pass
     return None
 
 
@@ -228,12 +256,11 @@ async def open_spread(
         if polled:
             status = str(polled.get("status") or status).lower()
             if fill_per_share is None:
-                avg = polled.get("filled_avg_price")
-                if avg is not None:
-                    try:
-                        fill_per_share = float(avg)
-                    except (TypeError, ValueError):
-                        pass
+                # Reuse _extract_filled_avg_price (per-leg preferred, top-
+                # level negated as fallback) instead of trusting the raw
+                # top-level field directly -- see its docstring for the
+                # real sign bug this avoids.
+                fill_per_share = _extract_filled_avg_price(polled)
 
     if status in TERMINAL_BAD:
         raise RuntimeError(f"open order terminal without fill: status={status} ids={order_ids}")
@@ -310,17 +337,23 @@ async def close_spread(
         if polled:
             status = str(polled.get("status") or status).lower()
             if fill_per_share is None:
-                avg = polled.get("filled_avg_price")
-                if avg is not None:
-                    try:
-                        fill_per_share = float(avg)
-                    except (TypeError, ValueError):
-                        pass
+                fill_per_share = _extract_filled_avg_price(polled)
 
     if status in TERMINAL_BAD:
         raise RuntimeError(f"close order terminal without fill: status={status} ids={order_ids}")
 
-    fill_debit = round(fill_per_share * 100, 2) if fill_per_share is not None else None
+    # Real bug fixed 2026-08-30: _extract_filled_avg_price returns NET CASH
+    # RECEIVED (positive = credit, negative = debit paid -- see its
+    # docstring). Closing a credit spread nets a DEBIT (you pay to close),
+    # so fill_per_share here is expected to be negative -- fill_debit (a
+    # positive cost paid) is its negation, not the raw value. The previous
+    # version used the raw value directly: a real close would have
+    # recorded a NEGATIVE fill_debit, and bot.py's
+    # `realized_pnl = credit_received - close_debit` would then ADD the
+    # (negative) close_debit instead of subtracting it -- silently
+    # inflating every real closed trade's reported P&L by roughly double
+    # the true debit paid.
+    fill_debit = round(-fill_per_share * 100, 2) if fill_per_share is not None else None
     normalized = "filled" if status in FILLED_STATUSES else "pending"
     logger.info("Closed spread (%s / %s): orders %s status=%s fill_debit=%s",
                 short_symbol, long_symbol, order_ids, normalized, fill_debit)

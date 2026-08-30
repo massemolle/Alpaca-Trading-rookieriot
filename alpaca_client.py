@@ -69,6 +69,14 @@ class AlpacaClient:
             "buying_power": float(acct.buying_power),
             "portfolio_value": float(acct.portfolio_value),
             "status": acct.status.value if hasattr(acct.status, "value") else str(acct.status),
+            # EFFECTIVE options level (min of approved level and the
+            # account config's max) -- confirmed against Alpaca's own
+            # OpenAPI spec; options_approved_level alone only reflects one
+            # half of that. Level 3 = "Spreads/Straddles", required for
+            # every multi-leg order this bot places. Never checked at
+            # runtime before this (2026-08-30) -- only verified once by
+            # hand at account setup.
+            "options_trading_level": getattr(acct, "options_trading_level", None),
         }
 
     def get_positions(self) -> list[dict[str, Any]]:
