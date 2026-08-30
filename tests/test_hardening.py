@@ -97,6 +97,77 @@ def test_reconcile_detects_phantom(monkeypatch):
     assert "missing at broker" in result.reason
 
 
+def test_reconcile_detects_leg_quantity_mismatch(monkeypatch):
+    """2026-08-30: the symbol-only check above can't see a leg quietly
+    filled at a different size than its own DB record -- found auditing
+    the same pattern in a sibling project's copy of this reconciler."""
+    import reconciler as rec
+
+    class Client:
+        def get_positions(self):
+            return [
+                {"symbol": "SPY260911P00640000", "side": "short", "qty": 5.0},  # DB says 2
+                {"symbol": "SPY260911P00635000", "side": "long", "qty": 2.0},
+            ]
+
+        def get_orders(self, status="open"):
+            return []
+
+    class FakeDB:
+        @staticmethod
+        def get_open_spreads():
+            return [{
+                "id": 1, "underlying": "SPY",
+                "short_symbol": "SPY260911P00640000",
+                "long_symbol": "SPY260911P00635000",
+                "contracts": 2,
+            }]
+
+        @staticmethod
+        def get_spreads_by_status(status):
+            return []
+
+    monkeypatch.setattr(rec, "db", FakeDB)
+    result = reconcile(Client())
+    assert not result.ok
+    assert "DB says 2 contract(s), broker says 5.0" in result.reason
+
+
+def test_reconcile_detects_leg_side_mismatch(monkeypatch):
+    """A short leg recorded at the broker as long (or vice versa) is a
+    real capital-structure inconsistency, not just a quantity typo."""
+    import reconciler as rec
+
+    class Client:
+        def get_positions(self):
+            return [
+                {"symbol": "SPY260911P00640000", "side": "long", "qty": 1.0},  # DB says short
+                {"symbol": "SPY260911P00635000", "side": "long", "qty": 1.0},
+            ]
+
+        def get_orders(self, status="open"):
+            return []
+
+    class FakeDB:
+        @staticmethod
+        def get_open_spreads():
+            return [{
+                "id": 1, "underlying": "SPY",
+                "short_symbol": "SPY260911P00640000",
+                "long_symbol": "SPY260911P00635000",
+                "contracts": 1,
+            }]
+
+        @staticmethod
+        def get_spreads_by_status(status):
+            return []
+
+    monkeypatch.setattr(rec, "db", FakeDB)
+    result = reconcile(Client())
+    assert not result.ok
+    assert "expected side 'short', broker says 'long'" in result.reason
+
+
 def test_spread_monitor_mark_units():
     """Regression: mark must be dollars-per-contract (×100), matching credit."""
     from spread_monitor import SpreadMonitor

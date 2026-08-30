@@ -53,6 +53,44 @@ def _db_leg_symbols(spreads: list[dict[str, Any]]) -> set[str]:
     return legs
 
 
+# 2026-08-30: the symbol-set check above only proves every expected symbol
+# EXISTS somewhere at the broker -- it says nothing about quantity or
+# direction. A short leg quietly filled at a different size than its own
+# `contracts` record (or landing on the wrong side) would pass silently.
+# spreads.contracts is real ground truth (recorded at open against the
+# real fill, per the Weekend Harden fill-confirmation work), so this
+# compares broker qty against what was actually intended.
+_LEG_ROLES = {"short_symbol": "short", "long_symbol": "long"}
+
+
+def _leg_consistency_issues(spreads: list[dict[str, Any]], positions: list[dict[str, Any]]) -> list[str]:
+    by_symbol = {p["symbol"]: p for p in positions}
+    issues: list[str] = []
+    for s in spreads:
+        expected_contracts = int(s.get("contracts") or 1)
+        label = s.get("id", s.get("symbol", "?"))
+        for col, expected_side in _LEG_ROLES.items():
+            symbol = s.get(col)
+            if not symbol:
+                continue
+            pos = by_symbol.get(symbol)
+            if pos is None:
+                continue  # already reported as a phantom leg above
+            actual_side = str(pos.get("side") or "")
+            if actual_side != expected_side:
+                issues.append(
+                    f"spread #{label} {symbol} ({col}): expected side "
+                    f"'{expected_side}', broker says '{actual_side}'"
+                )
+            actual_qty = abs(float(pos.get("qty") or 0))
+            if actual_qty != expected_contracts:
+                issues.append(
+                    f"spread #{label} {symbol} ({col}): DB says "
+                    f"{expected_contracts} contract(s), broker says {actual_qty}"
+                )
+    return issues
+
+
 def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
     """Compare Alpaca option positions to DB open/pending spreads.
 
@@ -94,6 +132,7 @@ def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
         reasons.append(f"DB-open legs missing at broker: {sorted(phantom)}")
     if orphan:
         reasons.append(f"broker option legs missing from DB: {sorted(orphan)}")
+    reasons.extend(_leg_consistency_issues(open_spreads, positions))
 
     ok = not reasons if block_on_mismatch else True
     if reasons:
