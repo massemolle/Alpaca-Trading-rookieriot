@@ -97,10 +97,13 @@ def _decide_via_claude_code(candidates: list[dict], remaining_budget: int) -> di
         + "\n\nRespond with ONLY the JSON object, no code fences, no other text.\n\n"
         + user_prompt
     )
+    cmd = ["claude", "-p", prompt, "--output-format", "text"]
+    model = os.environ.get("REASONER_CLAUDE_MODEL")
+    if model:
+        cmd += ["--model", model]
     with tempfile.TemporaryDirectory() as scratch:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text"],
-            capture_output=True, text=True, timeout=180, cwd=scratch,
+            cmd, capture_output=True, text=True, timeout=180, cwd=scratch,
         )
     if result.returncode != 0:
         raise RuntimeError(f"claude -p failed: {result.stderr.strip()[:200]}")

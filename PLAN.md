@@ -230,6 +230,13 @@ Explicitly cut unless everything above is green early: D15 full evolution lab, m
 
 **Divergence protocol:** this instance (team repo `main` + this machine + the judged account) is ours; Alex experiments freely on his machine/branches — but **never trading the judged account while our cron holds it** (one live trader per account; his tests belong on a dev paper account). Comparison happens through artifacts, not shared state: decision journals, equity curves, and end-of-week attribution. Merges from his side come as reviewed PRs, not direct pushes to the trading path.
 
+## D19 — Two-model split + gated nightly engineer (2026-08-30, Guillaume's call)
+
+- **Intraday decisions: Claude Opus 4.8** (`REASONER_CLAUDE_MODEL` in .env, passed to `claude -p --model`) — fast, light on subscription limits, one call per cycle at most.
+- **Evenings: Claude Fable 5 as the "nightly engineer"** (`run_evening_review.sh`, cron 21:00 UTC Mon–Fri): reads the day's journal/positions/ablation/lab (`evening_context.py` → `state/evening_context.json`), then MAY EDIT the trading algorithm within its charter (`prompts/evening_engineer.md`), logging every session to `NIGHTLY.md`.
+- **The gate that reconciles this with D15/PREMORTEM #8** (unvalidated self-modification): the engineer's changes survive ONLY if compile + full pytest + a forced-DRY_RUN cycle pass afterwards; otherwise `git reset --hard` reverts the whole session. Protected surfaces (.env, crontab, risk-limit loosening, executor safety, DRY_RUN mechanics, emergency_flatten) are charter-forbidden and restored/reverted regardless. Credentials are scrubbed from the engineer's environment.
+- Honest caveat, recorded: this gate checks CORRECTNESS, not performance — a change can pass tests and still trade worse. Mitigations: one-theme-per-night charter rule, NIGHTLY.md audit trail, per-commit revertability, and the live ablation exposing degradation within a day.
+
 ## Open questions
 
 - [ ] Final scrub before submission (Sep 3–4): remove old-repo mentions in D16 and third-party identifiers (Gaussly, Agent Bazaar, /home/lab-master, dead Hermes link in README) — deferred 2026-08-28 to avoid touching working code mid-week
