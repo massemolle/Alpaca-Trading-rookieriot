@@ -137,3 +137,16 @@ CREATE TABLE IF NOT EXISTS alpaca_hackathon.nightly_sessions (
     gate_tail    TEXT,      -- gate log tail (failures when REVERTED)
     created_at   TIMESTAMPTZ DEFAULT now()
 );
+
+-- Beta-weighted delta (2026-08-30, adapted from the sibling project's
+-- portfolio_greeks_snapshots table) -- see portfolio_beta.py. One row per
+-- cycle: "this book moves like N shares of SPY", plus raw net delta and
+-- the per-spread breakdown behind it. Apply this manually against your
+-- Supabase project -- nothing in this repo runs migrations automatically.
+CREATE TABLE IF NOT EXISTS alpaca_hackathon.beta_weighted_delta_snapshots (
+    id                   SERIAL PRIMARY KEY,
+    snapshot_at          TIMESTAMPTZ DEFAULT now(),
+    net_delta            NUMERIC,
+    beta_weighted_delta  NUMERIC,   -- NULL when incomplete (missing price data for some underlying)
+    per_spread           JSONB      -- [{spread_id, underlying, delta, beta, beta_weighted_delta}, ...]
+);

@@ -146,6 +146,16 @@ class OptionsRiskLimits:
         # equity — prevents one position from dominating the portfolio.
         default_factory=lambda: _env_float("MAX_CONCENTRATION_PCT", 0.20)
     )
+    max_cluster_concentration_pct: float = field(
+        # Same idea as max_concentration_pct but at the correlation-cluster
+        # level (screening/correlation_clusters.py) — catches concurrent
+        # spreads spread across DIFFERENT tickers that are still, in
+        # practice, the same macro bet (e.g. several mega-cap tech names).
+        # 40% starting value, not independently backtested here — adapted
+        # 2026-08-30 from the sibling project's own choice, watched the
+        # same way (real trading data, revisit if it ever actually binds).
+        default_factory=lambda: _env_float("MAX_CLUSTER_CONCENTRATION_PCT", 0.40)
+    )
     contest_end_utc: str = field(
         # Hard close-out deadline, independent of profit/loss — added
         # specifically because should_close() previously only fired on

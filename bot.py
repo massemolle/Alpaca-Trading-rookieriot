@@ -29,6 +29,7 @@ import black_scholes
 import db
 import executor_mcp
 import llm_reasoner
+import portfolio_beta
 import reconciler
 import risk_gate
 import shadow_book
@@ -36,6 +37,7 @@ from alpaca_client import AlpacaClient
 from config import config
 from mcp_client import AlpacaMCP
 from pretrade_gate import _daily_pl, pre_trade_check
+from screening import correlation_clusters
 from screening.filters import filter_universe
 from screening.universe import get_universe
 from selector import aggregate_max_loss, shadow_select
@@ -289,12 +291,15 @@ async def find_candidates(
     today = datetime.now(timezone.utc).date()
 
     existing_exposure: dict[str, float] = {}
+    cluster_exposure: dict[str, float] = {}
     for s in db.get_open_spreads():
         underlying = s["underlying"]
         n = int(s.get("contracts") or 1)
-        existing_exposure[underlying] = (
-            existing_exposure.get(underlying, 0) + float(s.get("max_loss", 0)) * n
-        )
+        max_loss_total = float(s.get("max_loss", 0)) * n
+        existing_exposure[underlying] = existing_exposure.get(underlying, 0) + max_loss_total
+        cluster = correlation_clusters.cluster_for(underlying)
+        if cluster is not None:
+            cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
 
     candidates = []
     gate_rejections: list[dict] = []
@@ -336,6 +341,7 @@ async def find_candidates(
             today=today,
             existing_exposure=existing_exposure,
             underlying=sig.ticker,
+            cluster_exposure=cluster_exposure,
         )
         if not check.allowed:
             logger.info("%s rejected by risk gate: %s", sig.ticker, check.reasons)
@@ -428,6 +434,7 @@ async def run_cycle() -> None:
     async with AlpacaMCP() as mcp:
         close_notes = await manage_open_spreads(mcp, client, market_open=market_open)
         await shadow_book.manage_open(mcp)
+        await portfolio_beta.record_beta_weighted_delta(mcp)
 
         open_spreads = db.get_open_spreads()
         remaining_budget = max(0, config.risk.max_concurrent_spreads - len(open_spreads))
