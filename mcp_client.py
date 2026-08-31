@@ -47,9 +47,15 @@ class AlpacaMCP:
 
     async def __aenter__(self) -> "AlpacaMCP":
         self._stack = AsyncExitStack()
+        # PINNED 2026-08-31: fastmcp 4.0.0 (released mid-day) removed
+        # `fastmcp.tools.tool`, which alpaca-mcp-server 2.3.0 imports — the
+        # unpinned spawn broke every cycle from 18:00 UTC (server died on
+        # import; live incident, found via state/mcp_server.log). Pin BOTH
+        # sides so a registry release can never change trading behavior
+        # mid-day again. Upgrade deliberately, post-hackathon.
         params = StdioServerParameters(
             command="uvx",
-            args=["alpaca-mcp-server"],
+            args=["--with", "fastmcp==3.4.7", "alpaca-mcp-server==2.3.0"],
             env={
                 "ALPACA_API_KEY": config.alpaca.api_key,
                 "ALPACA_SECRET_KEY": config.alpaca.secret_key,
