@@ -122,9 +122,15 @@ confidence than the underlying check actually supported.
 
 ## Honest scope notes
 
-- **No broker-supplied Greeks.** Verified live: `feed=opra` needs paid OPRA;
-  free `indicative` has no `greeks`. Delta via `black_scholes.py` + realized-vol
-  proxy. Quote IV (`iv_diagnostic.py`) is shadow-only until promoted.
+- **No broker-supplied Greeks for contracts we don't hold.** Verified live:
+  `feed=opra` needs paid OPRA; free `indicative` has no `greeks` on arbitrary
+  snapshots — so candidate/strike selection uses `black_scholes.py` +
+  realized-vol proxy. Nuance (verified live on the sibling instance,
+  2026-08-30): Alpaca DOES populate real Greeks for **held positions**, and
+  `portfolio_beta.py` uses those for open-book monitoring (beta-weighted
+  delta) since the cluster-cap merge. Selection stays on the proxy; the
+  proxy's error is measurable against broker Greeks once a position opens.
+  Quote IV (`iv_diagnostic.py`) is shadow-only until promoted.
 - **ETF core only** for the judged book; broad equity scrape remains behind
   `UNIVERSE_MODE=broad` for offline experiments.
 - **`open_interest` is frequently `null`** — liquidity leans on bid-ask when OI

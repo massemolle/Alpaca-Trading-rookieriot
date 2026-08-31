@@ -29,7 +29,8 @@ def test_cluster_for_known_and_unknown_tickers():
     assert correlation_clusters.cluster_for("NVDA") == "mega_cap_tech"
     assert correlation_clusters.cluster_for("JPM") == "big_banks"
     assert correlation_clusters.cluster_for("XOM") == "energy_majors"
-    assert correlation_clusters.cluster_for("SPY") is None  # not in any cluster -- gate simply doesn't apply
+    assert correlation_clusters.cluster_for("SPY") == "us_index_etf"  # our own universe is covered
+    assert correlation_clusters.cluster_for("KO") is None  # not in any cluster -- gate simply doesn't apply
 
 
 def test_cluster_cap_blocks_when_projected_exposure_exceeds_it():
@@ -53,13 +54,25 @@ def test_cluster_cap_allows_when_under_it():
 
 
 def test_cluster_cap_does_not_apply_to_uncovered_ticker():
-    # SPY isn't in any cluster -- even a huge existing_exposure figure for
+    # KO isn't in any cluster -- even a huge existing_exposure figure for
     # some cluster must never leak onto an unrelated, uncovered ticker.
     check = risk_gate.check_new_spread(
-        **_base_kwargs(max_loss=500.0, underlying="SPY"),
+        **_base_kwargs(max_loss=500.0, underlying="KO"),
         cluster_exposure={"mega_cap_tech": 99_000.0},
     )
     assert check.allowed
+
+
+def test_index_etf_cluster_treats_our_universe_as_one_bet():
+    # SPY spread while QQQ+IWM exposure already nearly fills the cluster
+    # cap: blocked -- three index ETFs are one US-market bet in stress.
+    check = risk_gate.check_new_spread(
+        **_base_kwargs(max_loss=500.0, underlying="SPY"),
+        existing_exposure={"SPY": 0.0},
+        cluster_exposure={"us_index_etf": 39_600.0},
+    )
+    assert not check.allowed
+    assert any("us_index_etf" in r for r in check.reasons)
 
 
 def test_cluster_cap_is_a_no_op_when_omitted():

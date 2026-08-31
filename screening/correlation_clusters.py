@@ -44,10 +44,24 @@ ENERGY_MAJORS: frozenset[str] = frozenset({
     "XOM", "CVX", "COP", "SLB", "OXY",
 })
 
+# Broad US index ETFs (added 2026-08-31, this instance's amendment on merge):
+# SPY, QQQ and IWM overlap heavily -- QQQ is dominated by SPY's own largest
+# names and IWM co-moves in any broad risk move -- so a book of verticals
+# across all three is, in stress, ONE US-market bet, not three. This is our
+# actual default universe: without this cluster the cap above only protects
+# universes we don't trade. At current sizing (1 contract, ~$400 max loss,
+# max 5 concurrent ≈ 2% of equity) the 40% cap cannot bind -- it exists so
+# the book's true correlation is capped honestly, and so the cap scales
+# automatically if sizing is ever raised.
+US_INDEX_ETF: frozenset[str] = frozenset({
+    "SPY", "QQQ", "IWM", "DIA", "VOO", "IVV", "VTI",
+})
+
 _CLUSTERS: dict[str, frozenset[str]] = {
     "mega_cap_tech": MEGA_CAP_TECH,
     "big_banks": BIG_BANKS,
     "energy_majors": ENERGY_MAJORS,
+    "us_index_etf": US_INDEX_ETF,
 }
 
 
