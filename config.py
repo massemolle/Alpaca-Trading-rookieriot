@@ -106,7 +106,18 @@ class OptionsRiskLimits:
         # long-run expectancy. 16-delta is separately cited as close to the
         # theta-per-day sweet spot, so this isn't purely a win-rate-over-EV
         # trade-off for our case (2026-08-26 research pass).
-        default_factory=lambda: _env_float("SHORT_LEG_TARGET_DELTA", 0.17)
+        #
+        # 0.17 -> 0.13 (2026-08-31, requested by Will): pushes further in
+        # the same direction as the research above -- smaller, higher-
+        # probability wins, more of them, instead of chasing bigger premium
+        # per trade. This is a TIGHTENING (further OTM = lower assignment
+        # risk per trade), consistent with CLAUDE.md's risk-limit rule.
+        # Deliberately a modest step: the judged bot's own sibling project
+        # found a real ~60% strike-rounding delta error on low-priced
+        # names when it tried 0.17->0.20 without the same synthetic-case
+        # verification (see verify_backtest.py in that repo) -- reason to
+        # stay modest here too, not backtested at 0.13 specifically.
+        default_factory=lambda: _env_float("SHORT_LEG_TARGET_DELTA", 0.13)
     )
     spread_width_dollars: float = field(
         # Distance between short and long strikes. $5 wide is a clean,
@@ -117,7 +128,16 @@ class OptionsRiskLimits:
     profit_target_pct: float = field(
         # Close early once 50% of max credit is captured — standard credit-
         # spread management, reduces tail-risk exposure to gamma near expiry.
-        default_factory=lambda: _env_float("PROFIT_TARGET_PCT", 0.50)
+        #
+        # 0.50 -> 0.30 (2026-08-31, requested by Will): closes even
+        # earlier -- recycles capital into a new trade sooner instead of
+        # holding out for the last bit of theta, more completed trades over
+        # the judged week. Also a TIGHTENING in the sense that matters for
+        # CLAUDE.md's rule: less time-in-trade means less exposure to a gap
+        # move on any single position, not more. Not independently
+        # backtested at 0.30 -- worth watching real win-rate/trade-count
+        # once live data accumulates.
+        default_factory=lambda: _env_float("PROFIT_TARGET_PCT", 0.30)
     )
     stop_loss_multiple: float = field(
         # Close if the spread's mark-to-market loss reaches this multiple of
