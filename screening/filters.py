@@ -24,33 +24,33 @@ def _passes_filters(
     snapshot: dict[str, Any],
     quote: dict[str, Any],
     sf: Any,
-) -> Candidate | None:
+) -> tuple[Candidate | None, str | None]:
+    """Returns (candidate, None) on pass, (None, reason) on rejection."""
     price = snapshot.get("latest_trade_price") or snapshot.get("daily_close")
     if price is None:
-        return None
+        return None, "no price in snapshot"
     price = float(price)
 
     if price < sf.min_price or price > sf.max_price:
-        return None
+        return None, f"price {price:.2f} outside [{sf.min_price:.0f}, {sf.max_price:.0f}]"
 
     volume = snapshot.get("daily_volume")
     if volume is None or volume < sf.min_avg_volume:
-        return None
+        return None, f"volume {volume} below min {sf.min_avg_volume}"
 
     spread_pct = quote.get("spread_pct", 0.0)
     if spread_pct > sf.max_spread_pct:
-        return None
+        return None, f"spread {spread_pct:.2f}% above max {sf.max_spread_pct:.2f}%"
 
     # Market-cap range filter
     market_cap = snapshot.get("market_cap")
     if market_cap is not None:
         market_cap = float(market_cap)
         if market_cap < sf.min_market_cap or market_cap > sf.max_market_cap:
-            logger.debug(
-                "%s rejected: market_cap %.0f outside [%.0f, %.0f]",
-                symbol, market_cap, sf.min_market_cap, sf.max_market_cap,
+            return None, (
+                f"market_cap {market_cap:.0f} outside "
+                f"[{sf.min_market_cap:.0f}, {sf.max_market_cap:.0f}]"
             )
-            return None
     else:
         logger.debug("%s: market_cap unavailable in snapshot, skipping filter", symbol)
 
@@ -59,11 +59,7 @@ def _passes_filters(
     if atr_value is not None and price > 0:
         atr_pct = float(atr_value) / price * 100
         if atr_pct < sf.min_atr_pct:
-            logger.debug(
-                "%s rejected: ATR%% %.2f < min %.2f",
-                symbol, atr_pct, sf.min_atr_pct,
-            )
-            return None
+            return None, f"ATR% {atr_pct:.2f} below min {sf.min_atr_pct:.2f}"
     else:
         logger.debug("%s: ATR data unavailable in snapshot, skipping filter", symbol)
 
@@ -73,15 +69,31 @@ def _passes_filters(
         volume=volume,
         spread_pct=spread_pct,
         snapshot=snapshot,
-    )
+    ), None
 
 
-def filter_universe(tickers: list[str], client: AlpacaClient | None = None) -> list[Candidate]:
+def filter_universe(
+    tickers: list[str],
+    client: AlpacaClient | None = None,
+    rejections_out: list[dict] | None = None,
+) -> list[Candidate]:
+    """`rejections_out`, when given, is appended with one
+    {"ticker", "stage": "screening", "reasons": [...]} dict per rejected
+    symbol so callers can journal why the funnel narrowed (added 2026-09-01:
+    screening dropped 2/3 of the live universe all day with reasons visible
+    only at DEBUG level)."""
     if client is None:
         client = AlpacaClient()
 
     sf = config.screening
     candidates: list[Candidate] = []
+
+    def _record_rejection(symbol: str, reason: str) -> None:
+        logger.info("Screening rejected %s: %s", symbol, reason)
+        if rejections_out is not None:
+            rejections_out.append(
+                {"ticker": symbol, "stage": "screening", "reasons": [reason]}
+            )
 
     batch_size = 100
     for i in range(0, len(tickers), batch_size):
@@ -96,11 +108,14 @@ def filter_universe(tickers: list[str], client: AlpacaClient | None = None) -> l
             try:
                 quote = client.get_latest_quote(symbol)
             except Exception:
+                _record_rejection(symbol, "quote fetch failed")
                 continue
 
-            c = _passes_filters(symbol, snap, quote, sf)
+            c, reason = _passes_filters(symbol, snap, quote, sf)
             if c is not None:
                 candidates.append(c)
+            else:
+                _record_rejection(symbol, reason or "unknown")
 
     logger.info("Screening: %d / %d tickers passed filters", len(candidates), len(tickers))
     return candidates

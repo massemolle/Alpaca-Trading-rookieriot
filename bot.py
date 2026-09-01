@@ -79,18 +79,30 @@ def _fetch_daily_bars(client: AlpacaClient, ticker: str) -> pd.DataFrame:
     return pd.DataFrame(bars)
 
 
-def _apply_trend_and_volatility_filters(client: AlpacaClient, signals: list) -> list[tuple]:
+def _apply_trend_and_volatility_filters(
+    client: AlpacaClient, signals: list
+) -> tuple[list[tuple], list[dict]]:
+    """Returns (kept, rejections). Each rejection is
+    {"ticker", "stage": "trend_filter"|"vol_filter", "reasons": [...]} so the
+    decision journal can show why the menu narrowed — before 2026-09-01 a
+    trend-filter block was a silent `continue` and empty-menu days were
+    unattributable at evening review."""
     trend_filter = TrendFilter()
     trend_survivors: list[tuple] = []
+    rejections: list[dict] = []
     for sig in signals:
         try:
             bars_df = _fetch_daily_bars(client, sig.ticker)
         except Exception:
             logger.exception("Failed to fetch bars for %s, skipping", sig.ticker)
+            rejections.append({"ticker": sig.ticker, "stage": "trend_filter",
+                              "reasons": ["daily bars fetch failed"]})
             continue
 
         if bars_df.empty or "close" not in bars_df.columns:
             logger.info("%s has no usable daily bars this cycle, skipping", sig.ticker)
+            rejections.append({"ticker": sig.ticker, "stage": "trend_filter",
+                              "reasons": ["no usable daily bars"]})
             continue
 
         try:
@@ -99,8 +111,16 @@ def _apply_trend_and_volatility_filters(client: AlpacaClient, signals: list) -> 
         except Exception:
             # Fail-closed: unverified trend alignment must not trade.
             logger.exception("Trend filter failed for %s, rejecting", sig.ticker)
+            rejections.append({"ticker": sig.ticker, "stage": "trend_filter",
+                              "reasons": ["trend filter errored (fail-closed)"]})
             continue
         if not trend_allowed:
+            logger.info(
+                "%s %s rejected by trend filter: %s",
+                sig.ticker, sig.direction, "; ".join(trend_result.reasoning),
+            )
+            rejections.append({"ticker": sig.ticker, "stage": "trend_filter",
+                              "reasons": list(trend_result.reasoning)})
             continue
 
         trend_survivors.append((sig, bars_df))
@@ -135,20 +155,32 @@ def _apply_trend_and_volatility_filters(client: AlpacaClient, signals: list) -> 
                 pct = _realized_vol_percentile(bars_df)
             except Exception:
                 logger.exception("Volatility filter failed for %s, rejecting", sig.ticker)
+                rejections.append({"ticker": sig.ticker, "stage": "vol_filter",
+                                  "reasons": ["vol percentile errored (fail-closed)"]})
                 continue
             if pct is None:
                 logger.info("%s rejected: realized vol percentile unrankable", sig.ticker)
+                rejections.append({"ticker": sig.ticker, "stage": "vol_filter",
+                                  "reasons": ["realized vol percentile unrankable"]})
                 continue
             if pct < min_percentile:
                 logger.info(
                     "%s rejected: realized vol percentile %.2f below %.2f",
                     sig.ticker, pct, min_percentile,
                 )
+                rejections.append({
+                    "ticker": sig.ticker, "stage": "vol_filter",
+                    "reasons": [
+                        f"realized vol percentile {pct:.2f} below {min_percentile:.2f}"
+                        + (" (relaxed)" if min_percentile == vol_cfg.relaxed_min_percentile
+                           and vol_cfg.relaxed_min_percentile != vol_cfg.min_percentile else "")
+                    ],
+                })
                 continue
 
         realized_vol = black_scholes.realized_vol_from_bars(bars_df)
         kept.append((sig, realized_vol))
-    return kept
+    return kept, rejections
 
 
 async def manage_open_spreads(
@@ -281,12 +313,16 @@ async def find_candidates(
     mcp: AlpacaMCP, client: AlpacaClient, account: dict, open_count: int
 ) -> tuple[list[dict], list[dict]]:
     universe = get_universe()
-    filtered = filter_universe(universe, client)
+    # Funnel rejections (screening → trend/vol → sizing → risk gate) all land
+    # in the journal's gate_rejections so empty-menu days are attributable.
+    funnel_rejections: list[dict] = []
+    filtered = filter_universe(universe, client, rejections_out=funnel_rejections)
     tickers = [c.symbol for c in filtered]
     signals = generate_swing_signals(tickers, client)
     # Strategy freeze: neutral never becomes a bear-call by accident.
     signals = [s for s in signals if getattr(s, "direction", None) in ("long", "short")]
-    signals_with_vol = _apply_trend_and_volatility_filters(client, signals)
+    signals_with_vol, filter_rejections = _apply_trend_and_volatility_filters(client, signals)
+    funnel_rejections.extend(filter_rejections)
 
     today = datetime.now(timezone.utc).date()
 
@@ -302,7 +338,7 @@ async def find_candidates(
             cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
 
     candidates = []
-    gate_rejections: list[dict] = []
+    gate_rejections: list[dict] = list(funnel_rejections)
     equity = float(account["equity"])
     for sig, realized_vol in signals_with_vol:
         try:
@@ -314,8 +350,13 @@ async def find_candidates(
             )
         except Exception:
             logger.exception("Failed to build spread for %s", sig.ticker)
+            gate_rejections.append({"ticker": sig.ticker, "stage": "spread_builder",
+                                   "reasons": ["spread build errored"]})
             continue
         if plan is None:
+            logger.info("%s: no viable spread plan (spread_builder returned None)", sig.ticker)
+            gate_rejections.append({"ticker": sig.ticker, "stage": "spread_builder",
+                                   "reasons": ["no viable spread plan"]})
             continue
 
         contracts = optimal_contracts(
@@ -327,6 +368,7 @@ async def find_candidates(
         if contracts < 1:
             gate_rejections.append({
                 "ticker": sig.ticker,
+                "stage": "sizing",
                 "reasons": [f"1-contract max loss ${plan.max_loss:.2f} exceeds risk budget"],
             })
             continue
@@ -345,7 +387,9 @@ async def find_candidates(
         )
         if not check.allowed:
             logger.info("%s rejected by risk gate: %s", sig.ticker, check.reasons)
-            gate_rejections.append({"ticker": sig.ticker, "reasons": check.reasons})
+            gate_rejections.append(
+                {"ticker": sig.ticker, "stage": "risk_gate", "reasons": check.reasons}
+            )
             continue
 
         as_of = datetime.now(timezone.utc).isoformat()

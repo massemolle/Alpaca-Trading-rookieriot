@@ -50,7 +50,18 @@ class ScreeningFilters:
     min_market_cap: float = field(default_factory=lambda: _env_float("MIN_MARKET_CAP", 5e9))
     max_market_cap: float = field(default_factory=lambda: _env_float("MAX_MARKET_CAP", 2e12))
     min_price: float = field(default_factory=lambda: _env_float("MIN_PRICE", 10.0))
-    max_price: float = field(default_factory=lambda: _env_float("MAX_PRICE", 300.0))
+    max_price: float = field(
+        # Raised 300 -> 1000 (2026-09-01 nightly). The 300 cap was carried
+        # over from trading_bot's share-affordability screen, but the live
+        # universe is now index ETFs (D-universe: SPY/QQQ/IWM) and SPY ~767 /
+        # QQQ ~717 were structurally excluded — bot.log 2026-08-31 shows
+        # "Screening: 1/3" all day (IWM at 293.89 barely under the cap), so
+        # signals could never even see the two most liquid underlyings the
+        # gates were tuned for. Underlying share price is not a risk cap for
+        # defined-risk verticals: affordability is enforced downstream by
+        # max-loss sizing (contracts<1 rejects) and the risk gates.
+        default_factory=lambda: _env_float("MAX_PRICE", 1000.0)
+    )
     max_spread_pct: float = field(default_factory=lambda: _env_float("MAX_SPREAD_PCT", 0.5))
     min_atr_pct: float = field(default_factory=lambda: _env_float("MIN_ATR_PCT", 0.5))
 
