@@ -125,7 +125,18 @@ class OptionsRiskLimits:
         # long-run expectancy. 16-delta is separately cited as close to the
         # theta-per-day sweet spot, so this isn't purely a win-rate-over-EV
         # trade-off for our case (2026-08-26 research pass).
-        default_factory=lambda: _env_float("SHORT_LEG_TARGET_DELTA", 0.17)
+        #
+        # 0.17 -> 0.13 (2026-08-31, requested by Will): pushes further in
+        # the same direction as the research above -- smaller, higher-
+        # probability wins, more of them, instead of chasing bigger premium
+        # per trade. This is a TIGHTENING (further OTM = lower assignment
+        # risk per trade), consistent with CLAUDE.md's risk-limit rule.
+        # Deliberately a modest step: the judged bot's own sibling project
+        # found a real ~60% strike-rounding delta error on low-priced
+        # names when it tried 0.17->0.20 without the same synthetic-case
+        # verification (see verify_backtest.py in that repo) -- reason to
+        # stay modest here too, not backtested at 0.13 specifically.
+        default_factory=lambda: _env_float("SHORT_LEG_TARGET_DELTA", 0.13)
     )
     spread_width_dollars: float = field(
         # Distance between short and long strikes. $5 wide is a clean,
@@ -136,6 +147,16 @@ class OptionsRiskLimits:
     profit_target_pct: float = field(
         # Close early once 50% of max credit is captured — standard credit-
         # spread management, reduces tail-risk exposure to gamma near expiry.
+        #
+        # Left at 0.50 (2026-09-01, per Will's own call): an earlier version
+        # of this PR also dropped this to 0.30 for faster capital recycling,
+        # but that's a genuine exit-timing trade-off (let a winner run vs.
+        # take profit and reload), not a safety tightening like the delta
+        # change below — Will preferred to keep holding winners longer, and
+        # that's a legitimate call to make for this bot specifically, not a
+        # mistake to correct. Left as-is on purpose so this week's real
+        # results compare the two exit philosophies across the two bots,
+        # same as the existing DTE-window difference.
         default_factory=lambda: _env_float("PROFIT_TARGET_PCT", 0.50)
     )
     stop_loss_multiple: float = field(
