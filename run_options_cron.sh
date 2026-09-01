@@ -5,6 +5,11 @@
 # Failures now exit non-zero so monitoring can alert.
 set -uo pipefail
 cd "$(dirname "$0")"
+# Cron's bare PATH doesn't include ~/.local/bin, where the `claude` binary
+# lives — without this, llm_reasoner's subprocess fails and every LLM
+# decision silently degrades to abstention (found 2026-09-01: the nightly
+# engineer never ran night one for the same reason).
+export PATH="$HOME/.local/bin:$PATH"
 mkdir -p state
 exec 200>state/bot.lock
 # A cycle can take a while (MCP subprocess spin-up + several option-chain

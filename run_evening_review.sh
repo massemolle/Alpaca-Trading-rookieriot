@@ -7,6 +7,9 @@
 # trading cron tick).
 set -uo pipefail
 cd "$(dirname "$0")"
+# Cron's bare PATH doesn't include ~/.local/bin (the `claude` binary) —
+# night one recorded NO-CHANGE because the engineer binary was never found.
+export PATH="$HOME/.local/bin:$PATH"
 mkdir -p state
 
 # Never overlap a trading cycle (waits up to 10 min, then gives up).
