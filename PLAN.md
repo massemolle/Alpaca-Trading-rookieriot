@@ -237,6 +237,36 @@ Explicitly cut unless everything above is green early: D15 full evolution lab, m
 - **The gate that reconciles this with D15/PREMORTEM #8** (unvalidated self-modification): the engineer's changes survive ONLY if compile + full pytest + a forced-DRY_RUN cycle pass afterwards; otherwise `git reset --hard` reverts the whole session. Protected surfaces (.env, crontab, risk-limit loosening, executor safety, DRY_RUN mechanics, emergency_flatten) are charter-forbidden and restored/reverted regardless. Credentials are scrubbed from the engineer's environment.
 - Honest caveat, recorded: this gate checks CORRECTNESS, not performance — a change can pass tests and still trade worse. Mitigations: one-theme-per-night charter rule, NIGHTLY.md audit trail, per-commit revertability, and the live ablation exposing degradation within a day.
 
+## D21 — Contest recalibration: activity over patience (2026-09-01, Guillaume's call)
+
+Two silent trading days exposed a calibration mismatch, quantified in a 16-month
+replay of the LIVE funnel on the live 3-ETF universe: **one trade per ~15 days**
+— a patient-sniper configuration pointed at a 4-day judged contest. Nothing was
+broken (the funnel's per-stage journal proved each rejection correct); the
+mission changed. Three env-only changes (all in `.env`, reversible in one line):
+
+1. **Vol floor `VOL_MIN_PERCENTILE` 0.40 → 0.10** (relaxed 0.25 → 0.05). Lab on
+   the live universe: floor 0.10 = $795 P&L / 82% win / 1 trade per 10d vs
+   0.40 = $599 / 83% / 1 per 15d — strictly better here. Floor 0.00 collapses
+   to $51/70% — the filter's value is real but lives at the extreme low end.
+   (The 0.40 tastytrade calibration was for a 12-stock basket, not index ETFs.)
+2. **Universe 3 → 9 liquid optionable ETFs** (`SPY,QQQ,IWM,DIA,XLK,XLF,XLE,GLD,TLT`):
+   ~4× event rate (1 per ~3.4 days lab lower-bound; live re-fires daily), $743 /
+   74% win. Stays within D18's ETF-core spirit — no single names, no earnings risk.
+   DIA joins the `us_index_etf` cluster cap; sector/commodity ETFs are uncovered
+   by clusters (per-underlying + concurrency caps still apply).
+3. **`MAX_CONCURRENT_SPREADS` 5 → 8** — a DELIBERATE, operator-approved risk-cap
+   raise (the nightly engineer remains forbidden from doing this). At 1-contract
+   sizing: max ~$3.6k at risk ≈ 3.6% of equity. Rationale: the judged demo needs
+   a visibly active book, and the binding constraint was signals, not capital.
+
+Explicitly rejected the same day (lab-measured): PR #6's 0.13Δ/30%PT
+"volume-over-quality" (cuts 16-month expectancy 77%, and 4× worse in a 3-day
+equity-judged truncation — judged equity already counts unrealized marks, and
+we are signal-limited, not capital-limited) and 20-trades/day scalping
+(round-trip friction measured live at $4–8 on ~$50 credits = 8–16% per trip).
+Unchanged: 0.17Δ, 50% PT, 2× stop, 1 contract, all gates, trend filter, blackouts.
+
 ## Open questions
 
 - [ ] Final scrub before submission (Sep 3–4): remove old-repo mentions in D16 and third-party identifiers (Gaussly, Agent Bazaar, /home/lab-master, dead Hermes link in README) — deferred 2026-08-28 to avoid touching working code mid-week
