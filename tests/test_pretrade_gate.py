@@ -81,7 +81,19 @@ def test_missing_quotes_block(fake_db):
     assert "unavailable" in result.reason
 
 
-def test_concurrent_cap_counts_intracycle_opens(fake_db):
+def test_concurrent_cap_counts_intracycle_opens(fake_db, monkeypatch):
+    # Pin the cap: the live cap is env-tunable (D21 raised it to 8), and the
+    # nightly gate runs pytest with .env sourced — this test must assert the
+    # counting logic, not whatever cap the environment happens to set.
+    import dataclasses
+    import pretrade_gate
+    import risk_gate
+    pinned = dataclasses.replace(
+        pretrade_gate.config,
+        risk=dataclasses.replace(pretrade_gate.config.risk, max_concurrent_spreads=5),
+    )
+    monkeypatch.setattr(pretrade_gate, "config", pinned)
+    monkeypatch.setattr(risk_gate, "config", pinned)
     plan = make_plan()
     fake_db.extend({"underlying": f"T{i}", "max_loss": 300.0, "contracts": 1} for i in range(3))
     mcp = make_mcp(plan)
