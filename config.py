@@ -46,7 +46,15 @@ class ScreeningFilters:
     cap, reasonable price, real ATR) doesn't change just because the
     executed instrument is now an options spread instead of shares.
     """
-    min_avg_volume: int = field(default_factory=lambda: _env_int("MIN_AVG_VOLUME", 500_000))
+    # 500_000 -> 50_000 (2026-09-01, live evidence in cycle-35/38 journal):
+    # the free feed is IEX-ONLY (~2-3% of consolidated tape), so a floor
+    # calibrated for full-tape volume rejected SPY itself intraday
+    # ("volume 348773 below min 500000" — the most-traded security on
+    # Earth). 50k IEX ≈ multi-million consolidated. Same vestigial-stock-
+    # screen class as the max_price=300 fix (see NIGHTLY.md 2026-09-01).
+    # Options liquidity is enforced downstream at the quote level in
+    # spread_builder, which is the check that actually matters here.
+    min_avg_volume: int = field(default_factory=lambda: _env_int("MIN_AVG_VOLUME", 50_000))
     min_market_cap: float = field(default_factory=lambda: _env_float("MIN_MARKET_CAP", 5e9))
     max_market_cap: float = field(default_factory=lambda: _env_float("MAX_MARKET_CAP", 2e12))
     min_price: float = field(default_factory=lambda: _env_float("MIN_PRICE", 10.0))

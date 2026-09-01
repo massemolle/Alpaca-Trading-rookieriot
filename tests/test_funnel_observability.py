@@ -153,3 +153,12 @@ def test_aligned_signal_with_elevated_vol_survives():
     sig, realized_vol = kept[0]
     assert sig.ticker == "SPY"
     assert realized_vol > 0
+
+
+def test_volume_floor_calibrated_for_iex_feed():
+    """2026-09-01: IEX-only feed carries ~2-3% of consolidated volume; the
+    old 500k floor rejected SPY itself intraday (cycle 35 journal). The
+    floor must pass IEX-scale volumes for mega-liquid ETFs."""
+    from config import config
+    for iex_volume in (181_202, 308_584, 348_773):  # real rejected values
+        assert iex_volume >= config.screening.min_avg_volume
