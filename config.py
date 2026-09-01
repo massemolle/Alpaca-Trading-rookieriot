@@ -129,15 +129,16 @@ class OptionsRiskLimits:
         # Close early once 50% of max credit is captured — standard credit-
         # spread management, reduces tail-risk exposure to gamma near expiry.
         #
-        # 0.50 -> 0.30 (2026-08-31, requested by Will): closes even
-        # earlier -- recycles capital into a new trade sooner instead of
-        # holding out for the last bit of theta, more completed trades over
-        # the judged week. Also a TIGHTENING in the sense that matters for
-        # CLAUDE.md's rule: less time-in-trade means less exposure to a gap
-        # move on any single position, not more. Not independently
-        # backtested at 0.30 -- worth watching real win-rate/trade-count
-        # once live data accumulates.
-        default_factory=lambda: _env_float("PROFIT_TARGET_PCT", 0.30)
+        # Left at 0.50 (2026-09-01, per Will's own call): an earlier version
+        # of this PR also dropped this to 0.30 for faster capital recycling,
+        # but that's a genuine exit-timing trade-off (let a winner run vs.
+        # take profit and reload), not a safety tightening like the delta
+        # change below — Will preferred to keep holding winners longer, and
+        # that's a legitimate call to make for this bot specifically, not a
+        # mistake to correct. Left as-is on purpose so this week's real
+        # results compare the two exit philosophies across the two bots,
+        # same as the existing DTE-window difference.
+        default_factory=lambda: _env_float("PROFIT_TARGET_PCT", 0.50)
     )
     stop_loss_multiple: float = field(
         # Close if the spread's mark-to-market loss reaches this multiple of
