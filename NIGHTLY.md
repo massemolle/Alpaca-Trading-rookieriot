@@ -2,6 +2,67 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-01 evening (reviewing trading day 2026-09-01 — day 2)
+
+**Evidence.** Second consecutive day with an empty menu: all 12 cycles skipped,
+ablation books and menu_regret still empty, judge still unexaminable — per the
+analyze-regret procedure the weak link is upstream of the menu, but this time
+last night's funnel observability names the stage. In every screening-passing
+cycle the **trend filter blocked 100% of surviving tickers**: SPY, QQQ, IWM,
+XLF, GLD "Short against bullish trend"; XLE "Long against bearish trend". The
+tell is in the filter's own journaled reasoning: it computes ADX, *labels* the
+trend weak (SPY 15.0, IWM 16.5, QQQ 11.8, XLF 23.3 — all below the 25
+threshold), and blocks anyway — `TrendFilter.check()` never used ADX in the
+allow/block decision, only EMA50-vs-EMA200 direction. Structurally this means:
+in a long-term EMA-bull regime, any down day generates only bearish intraday
+signals, so the entire menu dies on exactly the days credit-spread premium is
+richest. 2026-09-01 was such a day — and the blocked bearish signals were
+directionally right (QQQ −1.26%, GLD −2.88%, XLK −1.45%; and XLE, blocked
+long-against-bearish-EMA, rose +1.33%). One day ≠ proof the gated variant is
+profitable, but two days of structural zero-flow + the filter contradicting its
+own strength reading = a well-posed lab hypothesis.
+
+**Changes (all dark — live behavior tonight is byte-identical).**
+1. `signals/trend_filter.py`: new `TrendFilter(block_only_strong_trend=...)`
+   param (default **False** = exact current behavior). When True, the
+   counter-trend block only fires when ADX > `adx_threshold` (25); a weak-ADX
+   EMA crossover is treated as direction-without-conviction and the candidate
+   passes, with an explicit reasoning line. `bot.py` still constructs
+   `TrendFilter()` — unchanged.
+2. `backtest_lab.py`: ladder gains `L2b ADX-gated trend` and
+   `L3b ADX-gated + vol` (same window/seeds; same TrendFilter class live uses,
+   so a lab win transfers directly). Also fixed a latent footgun my own edit
+   would have triggered: L4's candidate set was captured via
+   `name.startswith("L3")`, which "L3b" would have silently hijacked — now an
+   exact match on "L3 + vol filter".
+3. `tests/test_trend_filter_adx_gate.py` (5 tests): default mode blocks
+   counter-trend even at ADX 15 (pins live behavior), gated mode allows at 15
+   and blocks at 30, bearish side symmetric, aligned direction always passes.
+   ADX is monkeypatched constant — the tests pin the gate logic, not ADX math.
+
+**Not run: the lab itself.** Execution is permission-blocked in this session
+(as on 2026-09-01; the external gate is the only runner). **Proposal for the
+team:** run `python backtest_lab.py` once — the ladder now prints L2b/L3b next
+to L2/L3 on the same window. Read: L3b vs L3 on total P&L *and* max drawdown
+(lab caveat: BS/realized-vol proxy, relative comparison only). If L3b ≥ L3
+without materially worse drawdown, the live flip is a one-line change in
+`bot.py` (`TrendFilter(block_only_strong_trend=True)`); if L3b is worse, the
+hypothesis dies cheaply and the variant stays dark.
+
+**Deliberately not changed.** (a) DIA fails the 50k volume floor every cycle
+(30–42k on IEX) even after yesterday's 500k→50k recalibration — not chasing
+the threshold a second night; either DIA is structurally thin on IEX or it
+isn't worth carrying, team call. (b) XLK/TLT die in `spread_builder` ("no
+viable spread plan") every cycle — worth one diagnostic look tomorrow if it
+persists, separate theme. (c) Vol floor untouched.
+
+**Watch tomorrow.** (1) Whether the team's lab run confirms or kills L3b —
+that decides the live flip. (2) QQQ manual bull put stopped out −$70 on the
+gap-down open (exit path worked as designed; stop honored at 13:30Z). SPY
+756/751 still open, exp 09-10, ~−$85 mark. (3) If trend blocks continue on
+green days too, that's a different bug than this hypothesis — check the
+journal's per-stage reasons, they now tell you.
+
 ## 2026-09-01 (reviewing trading day 2026-08-31 — day 1)
 
 **Evidence.** Ablation and regret were both empty: zero candidates reached the

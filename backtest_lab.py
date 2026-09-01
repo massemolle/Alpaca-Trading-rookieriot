@@ -91,10 +91,17 @@ def load_bars(symbols: list[str]) -> dict[str, pd.DataFrame]:
     return out
 
 
-def find_events(data: dict[str, pd.DataFrame], *, use_trend: bool, use_vol: bool) -> list[tuple]:
-    """backtest_optimize.main's event loop, with the filters made toggleable."""
+def find_events(
+    data: dict[str, pd.DataFrame], *, use_trend: bool, use_vol: bool,
+    adx_gated_trend: bool = False,
+) -> list[tuple]:
+    """backtest_optimize.main's event loop, with the filters made toggleable.
+
+    adx_gated_trend=True tests the 2026-09-01 hypothesis: only block
+    counter-trend signals when ADX > 25 (same TrendFilter class live uses,
+    so a lab win here transfers directly)."""
     adaptive = AdaptiveIndicators()
-    trend_filter = TrendFilter()
+    trend_filter = TrendFilter(block_only_strong_trend=adx_gated_trend)
     events = []
     for symbol, df in data.items():
         cooldown_until = -1
@@ -273,6 +280,10 @@ def main() -> None:
         ("L1 raw signals", dict(use_trend=False, use_vol=False)),
         ("L2 + trend filter", dict(use_trend=True, use_vol=False)),
         ("L3 + vol filter", dict(use_trend=True, use_vol=True)),
+        # ADX-gated trend variants (2026-09-01): counter-trend blocked only
+        # when ADX > 25. Compare L2b vs L2 and L3b vs L3 — same window/seeds.
+        ("L2b ADX-gated trend", dict(use_trend=True, use_vol=False, adx_gated_trend=True)),
+        ("L3b ADX-gated + vol", dict(use_trend=True, use_vol=True, adx_gated_trend=True)),
     ]
     l3_events = None
     for name, toggles in ladder:
@@ -280,7 +291,9 @@ def main() -> None:
         trades = simulate_events(events)
         results[name] = metrics(trades)
         all_trades[name] = trades
-        if name.startswith("L3"):
+        if name == "L3 + vol filter":
+            # Exact match: "L3b ADX-gated + vol" must NOT replace the L4
+            # candidate set, or the policy baselines silently shift.
             l3_events = events
         print(f"{name:22s} events={len(events):4d}  {results[name]}")
 

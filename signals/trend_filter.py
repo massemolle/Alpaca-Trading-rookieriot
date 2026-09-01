@@ -52,6 +52,13 @@ class TrendFilter:
         EMA lenta para detectar tendencia (default 200)
     adx_threshold : float
         ADX mínimo para considerar tendencia fuerte (default 25)
+    block_only_strong_trend : bool
+        If True, the counter-trend block only fires when ADX > adx_threshold;
+        with a weak ADX the EMA crossover is treated as direction-without-
+        conviction and counter-trend candidates pass. Default False preserves
+        the unconditional block (live behavior). Added 2026-09-01 as a lab
+        hypothesis: on 2026-09-01 the filter emptied the whole menu while
+        itself reporting "weak trend" (ADX 11.8–16.5) on every blocked ticker.
     """
 
     def __init__(
@@ -59,10 +66,12 @@ class TrendFilter:
         ema_fast: int = 50,
         ema_slow: int = 200,
         adx_threshold: float = 25.0,
+        block_only_strong_trend: bool = False,
     ):
         self.ema_fast = ema_fast
         self.ema_slow = ema_slow
         self.adx_threshold = adx_threshold
+        self.block_only_strong_trend = block_only_strong_trend
 
     def check(
         self,
@@ -136,12 +145,21 @@ class TrendFilter:
 
         # Check if direction matches trend
         allowed = True
-        if trend_direction == "bullish" and direction == "short":
-            allowed = False
-            reasoning.append("BLOCKED: Short against bullish trend")
-        elif trend_direction == "bearish" and direction == "long":
-            allowed = False
-            reasoning.append("BLOCKED: Long against bearish trend")
+        counter_trend = (trend_direction == "bullish" and direction == "short") or (
+            trend_direction == "bearish" and direction == "long"
+        )
+        if counter_trend:
+            if self.block_only_strong_trend and last_adx <= self.adx_threshold:
+                reasoning.append(
+                    f"Counter-trend allowed: ADX={last_adx:.1f} <= "
+                    f"{self.adx_threshold:.0f} (EMA direction without conviction)"
+                )
+            elif trend_direction == "bullish":
+                allowed = False
+                reasoning.append("BLOCKED: Short against bullish trend")
+            else:
+                allowed = False
+                reasoning.append("BLOCKED: Long against bearish trend")
 
         return TrendFilterResult(
             allowed=allowed,
