@@ -35,6 +35,7 @@ env -u ALPACA_SECRET_KEY -u ALPACA_API_KEY -u SUPABASE_DB_PASSWORD -u TELEGRAM_B
     claude -p "$(cat prompts/evening_engineer.md)" \
     --model claude-fable-5 \
     --permission-mode acceptEdits \
+    --allowedTools "Bash(python -m pytest:*)" "Bash(python -m py_compile:*)" "Bash(python backtest_lab.py:*)" "Bash(source .venv/bin/activate:*)" \
     --output-format text \
     > state/evening_review_last.md 2> state/evening_review_err.log
 echo "--- engineer stdout saved to state/evening_review_last.md"
