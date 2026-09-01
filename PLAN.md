@@ -260,10 +260,14 @@ mission changed. Three env-only changes (all in `.env`, reversible in one line):
    sizing: max ~$3.6k at risk ≈ 3.6% of equity. Rationale: the judged demo needs
    a visibly active book, and the binding constraint was signals, not capital.
 
-Explicitly rejected the same day (lab-measured): PR #6's 0.13Δ/30%PT
-"volume-over-quality" (cuts 16-month expectancy 77%, and 4× worse in a 3-day
-equity-judged truncation — judged equity already counts unrealized marks, and
-we are signal-limited, not capital-limited) and 20-trades/day scalping
+PR #6 resolution (same day): the original 0.13Δ/30%PT was lab-rejected (−77%
+16-month expectancy; 4× worse in a 3-day equity-judged truncation — judged
+equity already counts unrealized marks, and we are signal-limited, not
+capital-limited). The revised PR (0.13Δ only, PT restored per Will) was MERGED
+as the shared default — Alex/Will's instance philosophy — while OUR instance
+pins `SHORT_LEG_TARGET_DELTA=0.17` in `.env` (live-config lab: 0.17=$743 vs
+0.13=$417, identical win rate). Two instances, one measurable A/B — the D18
+divergence protocol as intended. Also rejected: 20-trades/day scalping
 (round-trip friction measured live at $4–8 on ~$50 credits = 8–16% per trip).
 Unchanged: 0.17Δ, 50% PT, 2× stop, 1 contract, all gates, trend filter, blackouts.
 
