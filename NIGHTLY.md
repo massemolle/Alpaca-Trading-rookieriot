@@ -2,6 +2,68 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-02 evening (reviewing trading day 2026-09-02 — day 3)
+
+**Evidence.** First day with real AI flow — the ADX-gated trend filter (L3b,
+flipped live yesterday) delivered the menu it promised. Per analyze-regret:
+ablation is one day of marks and inconclusive (LLM book ≈ −$124, shadow rule
+≈ −$180, random ≈ −$96 — noise); regret is actually *good* for the judge
+(`dropped_positive_count = 0`: every dropped candidate is negative, XLK
+−77.5/−48.5, SPY −30, while its QQQ pick is the best menu row at −15.5, and
+it correctly refused the deep-ITM XLK 180/185 whose $286.5 "credit" exceeded
+its max loss — a stale-mid artifact, see watch item). The real pattern is
+elsewhere: **cycles 53, 54, 62, 63, 65, 66 each opened the identical QQQ
+725/730 Sep-14 bear call — six clones, ~$2,510 max loss on one strike** —
+and in every one of those cycles the judge's journaled reasoning claims
+restraint ("holding back a slot in the concurrent budget", "one clean spread
+beats padding the book") while unknowingly padding the book with the same
+spread. Six same-day decisions, same missing fact → pattern, class (c):
+the packet misrepresents reality by omission. No gate misbehaved: the
+per-underlying cap is 20% of equity (~$20k) and the concurrent cap is 8, so
+stacking is legal by design (D21 sized these caps for loss-percent, not
+duplication) — but the *judge* was structurally unable to weigh it: the fact
+packet contains zero book state. The shadow rule stacked identically, which
+confirms this is not an LLM quirk but an information gap.
+
+**Changes (one theme: make the judge book-aware).**
+1. `bot.py`: new `_book_context_facts()` — every candidate now carries
+   `{TKR}_OPEN_SPREADS` (count of open spreads on that underlying) and
+   `{TKR}_OPEN_MAX_LOSS` ($ exposure), from the same broker-reconciled DB
+   read the risk gate already uses (the loop computing `existing_exposure`
+   now also counts per-underlying spreads). Additive facts — journal,
+   dashboard audit page, and shadow/menu books all take the list generically.
+2. `llm_reasoner.py` SYSTEM_PROMPT (per tune-reasoner-prompt): new bullet
+   explaining the two facts, stating that re-selecting a held ticker STACKS
+   risk rather than replacing it, and that adding on must be a deliberate,
+   cited choice — prefer a different sound candidate or abstention when the
+   book already carries that thesis. JSON contract, citation rule, and
+   abstain-on-failure untouched.
+3. `tests/test_book_context_facts.py` (5 tests): held/unheld values, full
+   D10 provenance shape, citation-regex compatibility, and prompt↔fact-name
+   coupling (rename the facts and the prompt test fails).
+
+**Falsifiable prediction for tomorrow.** If QQQ (or any name) fires
+repeatedly again, same-strike duplicate opens per day drop from 6 to ≤2, and
+any add-on decision cites `[..._OPEN_SPREADS]` explicitly. If the journal
+shows the judge still stacking without ever citing the book facts, the
+prompt lever failed → escalate to a code-level duplicate-exposure cap in
+`pretrade_gate.py` (a tightening, D9 already lists "duplicate exposure" as
+intended gate content — I deliberately did NOT add it tonight; D21
+deliberately raised activity caps and a hard cap on day 1 of real flow would
+fight the operator's stated activity goal before the informational fix gets
+one day of evidence).
+
+**Watch tomorrow.** (1) The prediction above — verdict it either way.
+(2) `spread_builder` offered a deep-ITM XLK 180/185 bear call (spot 183.56)
+at cycle 53 with credit ($286.5) > max loss ($213.5) on indicative mids; the
+mechanical shadow rule took it and it's the worst shadow row (−$77.5). If it
+recurs, a min-OTM / max-credit-sanity check in the builder is a cheap fix.
+(3) Morning lost 5 cycles (15:00–17:00Z) to reconcile_block from the manual
+dry-fill incident — team fixed it same day (commits f68da27, 794ade9);
+nothing for me to do, but tomorrow's cycle count should be full.
+(4) XLK still intermittently dies in spread_builder ("no viable spread plan"
+in 3 of 5 open-market cycles) — third day; diagnostic theme candidate.
+
 ## 2026-09-01 evening (reviewing trading day 2026-09-01 — day 2)
 
 **Evidence.** Second consecutive day with an empty menu: all 12 cycles skipped,

@@ -47,6 +47,15 @@ second-guess them, only work within them:
   `reasoning` from the screening layer) and better risk/reward (credit relative to \
   max loss) over simply taking every candidate available.
 - Skipping a mediocre setup is a valid, often correct, decision.
+- Each candidate's facts include what the live book ALREADY holds on that \
+  underlying: `{TICKER}_OPEN_SPREADS` (open spread count) and \
+  `{TICKER}_OPEN_MAX_LOSS` (their combined max loss, $). Selecting a ticker you \
+  already hold opens a NEW spread on top of those — it stacks risk on the same \
+  bet, it does not replace or refresh it. Adding to an existing position is \
+  allowed only as a deliberate, cited choice (e.g. "adding to 2 open spreads \
+  [QQQ_OPEN_SPREADS] because ..."); when the book already carries meaningful \
+  exposure to a candidate, prefer a different sound candidate or abstaining \
+  over re-buying the same thesis by default.
 
 Each candidate carries a `facts` list — every number with its provenance \
 ({fact_id, value, source, quality, derivation}). When your reasoning uses a number, \

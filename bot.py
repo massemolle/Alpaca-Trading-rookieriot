@@ -318,6 +318,26 @@ async def manage_open_spreads(
     return notes
 
 
+def _book_context_facts(
+    tkr: str,
+    as_of: str,
+    open_spread_counts: dict[str, int],
+    existing_exposure: dict[str, float],
+) -> list[dict]:
+    # Book-state facts for the judge (2026-09-02): six identical QQQ 725/730
+    # spreads were stacked in one day, each cycle's reasoning claiming budget
+    # restraint — the judge cannot weigh exposure it never sees. Values come
+    # from the same broker-reconciled DB read the risk gate uses.
+    return [
+        {"fact_id": f"{tkr}_OPEN_SPREADS", "value": open_spread_counts.get(tkr, 0),
+         "as_of": as_of, "source": "db.open_spreads", "quality": "computed",
+         "derivation": "count of spreads already open on this underlying in the live book"},
+        {"fact_id": f"{tkr}_OPEN_MAX_LOSS", "value": round(existing_exposure.get(tkr, 0.0), 2),
+         "as_of": as_of, "source": "db.open_spreads", "quality": "computed",
+         "derivation": "sum of max_loss x contracts across those open spreads, in $"},
+    ]
+
+
 async def find_candidates(
     mcp: AlpacaMCP, client: AlpacaClient, account: dict, open_count: int
 ) -> tuple[list[dict], list[dict]]:
@@ -337,11 +357,13 @@ async def find_candidates(
 
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}
+    open_spread_counts: dict[str, int] = {}
     for s in db.get_open_spreads():
         underlying = s["underlying"]
         n = int(s.get("contracts") or 1)
         max_loss_total = float(s.get("max_loss", 0)) * n
         existing_exposure[underlying] = existing_exposure.get(underlying, 0) + max_loss_total
+        open_spread_counts[underlying] = open_spread_counts.get(underlying, 0) + 1
         cluster = correlation_clusters.cluster_for(underlying)
         if cluster is not None:
             cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
@@ -422,6 +444,7 @@ async def find_candidates(
             {"fact_id": f"{tkr}_DTE", "value": (plan.expiration - today).days, "as_of": as_of,
              "source": "computed", "quality": "computed", "derivation": "expiration - today, in code"},
         ]
+        facts += _book_context_facts(tkr, as_of, open_spread_counts, existing_exposure)
         candidates.append({
             "ticker": sig.ticker,
             "direction": sig.direction,
