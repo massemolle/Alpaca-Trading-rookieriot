@@ -83,3 +83,10 @@ Disable LLM: remove/break reasoner key → fail-safe abstention; shadow still jo
 This is an **auditable constrained-agent experiment**, not statistically proven LLM
 alpha or a universally optimal options strategy. Present sample size, abstention,
 gate-block rate, and execution slippage honestly.
+
+## Verification discipline (learned 2026-09-02)
+NEVER run a forced-DRY_RUN cycle against the live DB during market hours with
+candidates flowing — dry "fills" are recorded into the real spreads/journal
+tables (by design, so the nightly gate can verify end-to-end) and desync the
+reconciler. The nightly gate's dry cycle is safe (market closed → no
+screening). Intraday verification = pytest only.
