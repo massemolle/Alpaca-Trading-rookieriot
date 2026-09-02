@@ -130,7 +130,7 @@ def test_reconcile_detects_leg_quantity_mismatch(monkeypatch):
     monkeypatch.setattr(rec, "db", FakeDB)
     result = reconcile(Client())
     assert not result.ok
-    assert "DB says 2 contract(s), broker says 5.0" in result.reason
+    assert "DB spreads sum to 2 contract(s), broker says 5.0" in result.reason
 
 
 def test_reconcile_detects_leg_side_mismatch(monkeypatch):
@@ -202,3 +202,39 @@ def test_macro_blackout_windows(monkeypatch):
     monkeypatch.setenv("MACRO_BLACKOUTS", "garbage,2026-09-02T10:00/2026-09-02T11:00")
     hit, _ = risk_gate.in_macro_blackout(datetime(2026, 9, 2, 10, 30, tzinfo=timezone.utc))
     assert hit
+
+
+def test_reconcile_allows_two_spreads_stacking_the_same_symbols(monkeypatch):
+    """2026-09-02 live incident: cycles 53+54 both opened QQQ 725/730C.
+    Broker reports ONE qty-2 position per leg; two 1-contract DB spreads
+    must reconcile clean (aggregate by symbol, not per spread)."""
+    import reconciler as rec
+
+    class Client:
+        def get_positions(self):
+            return [
+                {"symbol": "QQQ260914C00725000", "side": "short", "qty": 2.0},
+                {"symbol": "QQQ260914C00730000", "side": "long", "qty": 2.0},
+            ]
+
+        def get_orders(self, status="open"):
+            return []
+
+    class FakeDB:
+        @staticmethod
+        def get_open_spreads():
+            return [
+                {"id": i, "underlying": "QQQ",
+                 "short_symbol": "QQQ260914C00725000",
+                 "long_symbol": "QQQ260914C00730000",
+                 "contracts": 1}
+                for i in (5, 6)
+            ]
+
+        @staticmethod
+        def get_spreads_by_status(status):
+            return []
+
+    monkeypatch.setattr(rec, "db", FakeDB)
+    result = reconcile(Client())
+    assert result.ok, result.reason

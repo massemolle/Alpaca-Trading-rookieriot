@@ -64,30 +64,46 @@ _LEG_ROLES = {"short_symbol": "short", "long_symbol": "long"}
 
 
 def _leg_consistency_issues(spreads: list[dict[str, Any]], positions: list[dict[str, Any]]) -> list[str]:
+    # 2026-09-02: compare AGGREGATED-BY-SYMBOL, not per-spread — the broker
+    # reports one net position per option symbol, so two 1-contract spreads
+    # sharing the same strikes (happened live: cycles 53+54 both chose QQQ
+    # 725/730C) are qty 2 at the broker and a false mismatch per-spread.
+    # This was the known limitation flagged in the PR #4 review; it blocked
+    # entries for 3 hours the first day real menus stacked a symbol.
     by_symbol = {p["symbol"]: p for p in positions}
-    issues: list[str] = []
+    expected_qty: dict[str, int] = {}
+    expected_side: dict[str, str] = {}
+    side_conflicts: list[str] = []
     for s in spreads:
-        expected_contracts = int(s.get("contracts") or 1)
-        label = s.get("id", s.get("symbol", "?"))
-        for col, expected_side in _LEG_ROLES.items():
+        contracts = int(s.get("contracts") or 1)
+        for col, side in _LEG_ROLES.items():
             symbol = s.get(col)
             if not symbol:
                 continue
-            pos = by_symbol.get(symbol)
-            if pos is None:
-                continue  # already reported as a phantom leg above
-            actual_side = str(pos.get("side") or "")
-            if actual_side != expected_side:
-                issues.append(
-                    f"spread #{label} {symbol} ({col}): expected side "
-                    f"'{expected_side}', broker says '{actual_side}'"
+            expected_qty[symbol] = expected_qty.get(symbol, 0) + contracts
+            prior = expected_side.setdefault(symbol, side)
+            if prior != side:
+                side_conflicts.append(
+                    f"{symbol}: DB has it as both short and long legs across "
+                    f"spreads — net-side check skipped, quantities still compared"
                 )
-            actual_qty = abs(float(pos.get("qty") or 0))
-            if actual_qty != expected_contracts:
-                issues.append(
-                    f"spread #{label} {symbol} ({col}): DB says "
-                    f"{expected_contracts} contract(s), broker says {actual_qty}"
-                )
+    issues: list[str] = list(dict.fromkeys(side_conflicts))
+    for symbol, qty in expected_qty.items():
+        pos = by_symbol.get(symbol)
+        if pos is None:
+            continue  # already reported as a phantom leg above
+        actual_side = str(pos.get("side") or "")
+        if symbol not in {c.split(":")[0] for c in side_conflicts} and actual_side != expected_side[symbol]:
+            issues.append(
+                f"{symbol}: expected side '{expected_side[symbol]}', "
+                f"broker says '{actual_side}'"
+            )
+        actual_qty = abs(float(pos.get("qty") or 0))
+        if actual_qty != qty:
+            issues.append(
+                f"{symbol}: DB spreads sum to {qty} contract(s), "
+                f"broker says {actual_qty}"
+            )
     return issues
 
 
