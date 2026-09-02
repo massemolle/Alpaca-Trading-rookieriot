@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -87,7 +88,15 @@ def _apply_trend_and_volatility_filters(
     decision journal can show why the menu narrowed — before 2026-09-01 a
     trend-filter block was a silent `continue` and empty-menu days were
     unattributable at evening review."""
-    trend_filter = TrendFilter()
+    # ADX-gated mode (2026-09-02, env-opt-in): only block counter-trend
+    # entries when the trend has conviction (ADX > 25). Lab evidence is
+    # UNIVERSE-CONDITIONAL: on the live 9-ETF universe it's expectancy-
+    # neutral with more trades ($790 vs $743, same drawdown); on the
+    # 12-single-name basket it's badly negative ($364 vs $1,289) — if the
+    # universe ever includes single names again, turn this back off.
+    trend_filter = TrendFilter(
+        block_only_strong_trend=os.environ.get("TREND_BLOCK_ONLY_STRONG", "false").lower() == "true"
+    )
     trend_survivors: list[tuple] = []
     rejections: list[dict] = []
     for sig in signals:
