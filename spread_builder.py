@@ -177,13 +177,25 @@ async def build_spread(
             volatility=realized_vol, option_type=option_type,
         ))
 
+    def is_otm(contract: dict) -> bool:
+        strike = float(contract["strike_price"])
+        return strike < spot_price if is_bull_put else strike > spot_price
+
+    # The short leg must be OTM relative to spot. The delta sort below would
+    # normally guarantee that, but only among *liquidity-passing* strikes: on
+    # the indicative feed the OTM side of a thin chain can quote too wide to
+    # pass, leaving only ITM strikes as candidates — and an ITM short's "credit"
+    # is dominated by intrinsic value on stale mids, not premium (seen live
+    # 2026-09-02 and 2026-09-03: XLK bear calls ~7 points ITM offered at
+    # credit > max loss). If no OTM strike is liquid, there is no real spread
+    # to build here.
     liquid_candidates = [
         (c, delta_of(c)) for c in exp_contracts
-        if _passes_liquidity(c, snap_by_symbol.get(c["symbol"], {}))
+        if is_otm(c) and _passes_liquidity(c, snap_by_symbol.get(c["symbol"], {}))
     ]
     if not liquid_candidates:
         logger.info(
-            "%s %s chain has %d strikes but none pass the liquidity gate "
+            "%s %s chain has %d strikes but none are both OTM and liquid "
             "(min OI %d, max spread %.0f%%), skipping",
             ticker, chosen_expiration, len(exp_contracts),
             limits.min_open_interest, limits.max_bid_ask_spread_pct * 100,

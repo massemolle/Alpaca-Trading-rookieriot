@@ -2,6 +2,66 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-03 evening (reviewing trading day 2026-09-03 — day 4)
+
+**Verdict on last night's prediction: CONFIRMED, decisively.** The book-aware
+judge did exactly what the fix promised: same-strike duplicate opens went
+from 6/day to **0**. All seven abstentions after the cycle-76 open cite
+`[QQQ_OPEN_SPREADS]`/`[QQQ_OPEN_MAX_LOSS]` explicitly, and the one spread it
+did open (QQQ 705/700 bull put, cycle 76) came the cycle after the morning
+stop-outs emptied the book — it cited the zero-exposure fact as part of the
+case for acting. No escalation to a pretrade_gate duplicate cap needed; the
+informational lever was sufficient. The cost of the old blindness also
+realized today: all six stacked QQQ 725/730 bear calls stopped out into
+QQQ's +1.18% rally, −$91…−$104 each, ≈ −$587 — that cluster IS the day's
+−$474 P&L. The exits themselves behaved as designed (all six consistent,
+~2.3x credit cost-to-close).
+
+**Evidence (per analyze-regret).** Ablation: LLM book ≥ rule ≥ random, and
+today the gap is causal, not noise — the mechanical shadow rule, which has
+no book facts, stacked six clones of the same QQQ 705/700 bull put today
+(exactly yesterday's live failure mode) and also took a deep-ITM XLK
+artifact now marked −$203. Regret: `dropped_positive_count = 1` (+$15.1,
+open mark, cycle 74 — dropped with 6 QQQ spreads open and signal 0.004;
+class (a), sound reasoning, noise). The judge is currently the *strongest*
+link. The real pattern is class (c), second day running: **spread_builder
+again emitted a deep-ITM bear call on stale indicative mids** (cycle 71:
+XLK 177.5/182.5, spot ~185.85, credit $358 > max loss $142), the exact
+recurrence yesterday's watch item №2 defined as the trigger to fix it.
+
+**Changes (one theme: the builder must only build real OTM credit spreads).**
+1. `spread_builder.py`: the short-leg candidate list now requires the strike
+   to be OTM relative to spot (`strike < spot` for bull puts, `> spot` for
+   bear calls) *before* the delta sort. Mechanism of the bug: the delta
+   target (0.13) normally guarantees OTM, but only among liquidity-passing
+   strikes — when the indicative feed quotes the whole OTM side too wide,
+   only ITM strikes survived and the closest-to-target among them won. Now
+   that situation correctly yields "no viable spread plan". This is a
+   tightening in candidate construction; live selections today (QQQ 705/700
+   short at spot ~717) are unaffected.
+2. `bot.py` vol-filter rejection message: `.2f` → `.3f`. Today's journal
+   said SPY was rejected because "percentile 0.10 below 0.10" — a strict-`<`
+   check plus two-decimal rounding (real value ≈0.095–0.099). Display-only
+   fix so the journal stops contradicting itself; threshold untouched.
+3. `tests/test_spread_builder_otm.py` (5 tests): ITM-only-liquid chains
+   yield None for both directions, OTM shorts still build (and ITM strikes
+   are excluded even when liquid), plus a regression pin of the exact
+   cycle-71 XLK shape (credit > max loss → None).
+
+**Watch tomorrow.** (1) Menu/shadow books should contain zero rows with
+credit > max loss or ITM shorts; XLK may now produce fewer candidates —
+that's the correct outcome, not a regression. (2) SPY's real vol percentile
+is now visible at three decimals: if it hovers at 0.09x for days while SPY
+moves >1%, that's the evidence base for a lab experiment on the 0.10 floor
+(`run-lab-experiment`), not a guess — do not just lower it. (3) The one
+open QQQ 705/700 bull put (credit $79, marked ≈ −$10). (4) Shadow rule
+still stacks clones by design — it's the un-book-aware baseline; leave it
+as the control arm, don't "fix" it to match the judge.
+
+**Proposed, not touched.** Nothing outside my lane tonight; the pretrade
+duplicate-cap escalation is explicitly cancelled per the confirmed
+prediction.
+
 ## 2026-09-02 evening (reviewing trading day 2026-09-02 — day 3)
 
 **Evidence.** First day with real AI flow — the ADX-gated trend filter (L3b,

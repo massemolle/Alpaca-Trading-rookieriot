@@ -173,14 +173,18 @@ def _apply_trend_and_volatility_filters(
                                   "reasons": ["realized vol percentile unrankable"]})
                 continue
             if pct < min_percentile:
+                # Three decimals, not two: the check is strict `<`, and .2f
+                # rounding produced journal lines like "0.10 below 0.10"
+                # (SPY, all of 2026-09-03) that read as a filter bug at
+                # evening review when the real value was ~0.095.
                 logger.info(
-                    "%s rejected: realized vol percentile %.2f below %.2f",
+                    "%s rejected: realized vol percentile %.3f below %.3f",
                     sig.ticker, pct, min_percentile,
                 )
                 rejections.append({
                     "ticker": sig.ticker, "stage": "vol_filter",
                     "reasons": [
-                        f"realized vol percentile {pct:.2f} below {min_percentile:.2f}"
+                        f"realized vol percentile {pct:.3f} below {min_percentile:.3f}"
                         + (" (relaxed)" if min_percentile == vol_cfg.relaxed_min_percentile
                            and vol_cfg.relaxed_min_percentile != vol_cfg.min_percentile else "")
                     ],
