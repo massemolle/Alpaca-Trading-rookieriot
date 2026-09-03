@@ -111,8 +111,11 @@ def _decide_via_claude_code(candidates: list[dict], remaining_budget: int) -> di
     if model:
         cmd += ["--model", model]
     with tempfile.TemporaryDirectory() as scratch:
+        # 180 -> 400s (2026-09-03, operator call): a 180s timeout ate the
+        # day's best decision window on a transiently slow call (cycle 71).
+        # Cycles run every 30 min and take ~1 min otherwise — plenty of room.
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=180, cwd=scratch,
+            cmd, capture_output=True, text=True, timeout=400, cwd=scratch,
         )
     if result.returncode != 0:
         raise RuntimeError(f"claude -p failed: {result.stderr.strip()[:200]}")
