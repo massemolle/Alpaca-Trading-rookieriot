@@ -42,6 +42,17 @@ one is earning its keep.
 | 3 | judge was blind to its own book (six identical spreads) | book-awareness facts; predicted duplicates →≤2 |
 | 4 | builder emitted impossible ITM "credit spreads" on stale quotes | fixed; **verified night-3 prediction: duplicates = 0; cancelled its own escalation** |
 
+## How it's built (all components in production, built in 6 days)
+**Python engine** (cron, one decision cycle / 30 min; 85 tests incl. chaos suite) →
+**Alpaca MCP** for every option quote and multi-leg limit order, dedicated paper account →
+**Supabase Postgres** as the single source of truth (trades, decision journal, three
+virtual books, nightly-engineer trail) → **Next.js dashboard on Vercel** (auto-deploys
+each push; `/`, `/audit`, `/lab`) → **Telegram Mini App**: the entire dashboard one tap
+away inside the chat bot — the agent in your pocket. Two Claude models split the work:
+**Opus 4.8** judges trades by day (stateless, cited facts only); **Fable 5** engineers
+by night behind the auto-revert gate. Feature-by-feature build: every layer landed with
+its tests before the next began, fully reproducible from the repo.
+
 ## Honest scope
 Four trading days of P&L is statistical noise and we say so on the dashboard. We do not
 claim proven alpha. We claim a complete, working answer to the question that matters

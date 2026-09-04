@@ -14,4 +14,4 @@
 12. Strategy parameters were chosen by measurement, not taste: a 16-month component-ladder backtest (raw signals −$1,967 → +trend −$1,069 → +vol filter +$1,289) with honest proxy-pricing caveats printed on every run.
 13. The live ablation result: across an adverse, whipsawing week, the AI's book lost measurably less than the mechanical rule (−$620 vs −$1,101) on identical information — it refused the broken trades and the noise signals its baseline swallowed.
 14. We claim no statistically proven alpha in four days — we claim something rarer: an autonomous trading agent whose every decision, mistake, self-repair and refusal is auditable, gated, and measured against its own counterfactuals.
-15. Everything runs unattended — cron, paper account PA34CFYP0MIZ, Alpaca MCP for all options data and orders — and the entire week's decision history is one click away on the dashboard.
+15. Everything runs unattended in production — cron + Alpaca MCP for all data and orders, Supabase Postgres as the single source of truth, a Next.js dashboard on Vercel, and the same dashboard as a Telegram Mini App — the whole week's decision history one tap away, even from a phone.
