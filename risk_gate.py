@@ -134,6 +134,25 @@ def should_close(
     return False, None
 
 
+def in_contest_close_window(
+    now_utc: datetime | None = None,
+) -> tuple[bool, str] | tuple[bool, None]:
+    """True from 2 hours before the contest deadline onward — including every
+    moment AFTER the deadline (the condition never un-latches). Shared by the
+    exit side (should_force_close trigger 2) and the entry side (bot.py skips
+    screening): while this is True, any spread opened would be force-closed on
+    the very next cycle, so opening one only donates the bid/ask spread.
+    2026-09-04 evidence: with the deadline passed at 15:00 UTC, the unblocked
+    entry side ran eight open→force-close round-trips in one afternoon,
+    ≈ −$134 of pure churn.
+    """
+    now_utc = now_utc or datetime.now(timezone.utc)
+    contest_end = datetime.fromisoformat(config.risk.contest_end_utc)
+    if now_utc >= contest_end - timedelta(hours=2):
+        return True, "contest deadline is within 2 hours (or already passed)"
+    return False, None
+
+
 def should_force_close(
     *,
     expiration: date,
@@ -153,11 +172,11 @@ def should_force_close(
     if dte <= 1:
         return True, f"force-close: only {dte} day(s) to expiration"
 
-    contest_end = datetime.fromisoformat(config.risk.contest_end_utc)
     # Signal force-close once we are inside the final session window.
     # Actual order submission still requires market hours (enforced in bot.py);
     # this flag only marks the spread as needing a verified RTH close.
-    if now_utc >= contest_end - timedelta(hours=2):
+    in_window, _ = in_contest_close_window(now_utc)
+    if in_window:
         return True, "force-close: contest deadline is within 2 hours — close after options RTH open"
 
     return False, None

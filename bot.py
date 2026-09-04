@@ -524,10 +524,19 @@ async def run_cycle() -> None:
         slim_candidates: list[dict] = []
         decision = "skipped"
         blackout, blackout_reason = risk_gate.in_macro_blackout()
+        # Entry/exit symmetry: while should_force_close's contest-window
+        # trigger is live, a fresh spread would be flushed next cycle at the
+        # cost of the bid/ask spread — so no screening either.
+        close_window, close_window_reason = risk_gate.in_contest_close_window()
         if not options_level_ok:
             reasoning = f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
         elif blackout:
             reasoning = f"No new positions: {blackout_reason}. Exits stay active."
+        elif close_window:
+            reasoning = (
+                f"No new positions: {close_window_reason} — any spread opened now "
+                f"would be force-closed on the next cycle. Exits stay active."
+            )
         elif market_open:
             reasoning = "No eligible candidates this cycle."
         else:
@@ -540,7 +549,7 @@ async def run_cycle() -> None:
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
 
-        if remaining_budget > 0 and market_open and options_level_ok and not blackout:
+        if remaining_budget > 0 and market_open and options_level_ok and not blackout and not close_window:
             candidates, gate_rejections = await find_candidates(
                 mcp, client, account, len(open_spreads),
             )

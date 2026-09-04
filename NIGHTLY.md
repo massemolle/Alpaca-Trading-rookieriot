@@ -2,6 +2,67 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-04 evening (reviewing trading day 2026-09-04 — day 5, post-deadline)
+
+**The headline is not a selection problem — it's a lifecycle asymmetry.** The
+contest deadline (`CONTEST_END_UTC` = 2026-09-04T15:00Z) passed at midday.
+From 13:00Z onward, `risk_gate.should_force_close`'s contest trigger fired for
+every open spread ("deadline within 2 hours" — a condition that never
+un-latches once true), but *nothing blocked new entries*. Result: a churn
+loop all afternoon. Every position opened after 13:00Z was force-closed by the
+next cron cycle ~30 minutes later, labeled `closed_expiry`, booking roughly
+the bid/ask spread as a loss each time: real book ids 13–22, eight completed
+round-trips (−$5 to −$35 each, −$134 total ≈ the whole day's real P&L). The
+shadow (−$105/16 opens) and random (−$92/10 opens) books ran the identical
+treadmill, because all books draw from the same menu. The judge's *decisions*
+were fine in isolation — reasoning cited real facts, XLE's ADX-28.97 trending
+pick was coherent, and abstentions on the weak SPY/QQQ ranging slate were
+correct — but every one of those decisions was moot the moment it was made.
+
+**Evidence (per analyze-regret).** Ablation: all three books negative and
+within noise of each other today; the dominant loss driver is the churn
+regime, not policy, so no judge-vs-rule conclusion is drawable from today.
+Regret: 30 dropped candidates, only 4 marginally positive (+$29.6 total, best
++$15.1) against −$924.9 for the drops in aggregate — the judge's drops were
+overwhelmingly right; no class-(b)/(c) pattern, no prompt change warranted.
+
+**Change (one theme: entry/exit symmetry around the force-close window).**
+- `risk_gate.py`: new `in_contest_close_window()` — the contest-trigger
+  condition factored out of `should_force_close` so entry and exit sides
+  share one definition and cannot drift. Exit behavior unchanged.
+- `bot.py`: `run_cycle` now skips candidate screening while the window is
+  active (same idiom and precedence as the macro-blackout block); exits stay
+  fully active. This is a pure tightening: it forbids opening positions the
+  exit logic is already committed to flushing at a cost.
+- `tests/test_contest_entry_block.py` (5 tests): window boundary at
+  deadline−2h, never-unlatches after the deadline (the exact bug state),
+  entry-block ⇔ exit-trigger symmetry across sample times, and the DTE≤1
+  trigger pinned as independent of the contest window.
+
+**Consequence the operator must know.** With `CONTEST_END_UTC` still at
+2026-09-04T15:00Z, the bot is now correctly dormant on the entry side
+(exits-only) — before this fix it was dormant *in effect* but paying ~$17/
+round-trip for the privilege. To resume paper trading post-hackathon, extend
+`CONTEST_END_UTC` in `.env` (which I may not touch); that single change
+re-enables entries and pushes the force-close horizon out consistently.
+
+**Proposals (not touched tonight).**
+- `bot.py:591` calls `db.record_cycle` once *per opened spread*, so a
+  two-open cycle writes two identical cycle rows (today's cycles 100/101,
+  4 s apart, same reasoning — confused me for a double cron run until I read
+  the code). Fix is small (record once, reuse the id) but it's DB-write
+  plumbing next to the order path, out of tonight's theme.
+- Status labeling: a contest-window force-close records `closed_expiry` on a
+  10-DTE spread. A distinct `closed_force` status would keep expiry
+  statistics honest if anyone analyzes exit reasons later.
+
+**Watch tomorrow.** Cycles during market hours should journal
+"No new positions: contest deadline …" with zero candidates screened and zero
+shadow-book opens; the two spreads that were open at today's close (QQQ
+705/700 bull put, XLE 65/70 bear call, both exp 09-14) should be force-closed
+at the first RTH cycle — that pair is the last real churn cost. If any *new*
+spread appears in the book while the deadline is unchanged, this fix failed.
+
 ## 2026-09-03 evening (reviewing trading day 2026-09-03 — day 4)
 
 **Verdict on last night's prediction: CONFIRMED, decisively.** The book-aware
