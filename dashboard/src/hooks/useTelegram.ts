@@ -1,6 +1,6 @@
 'use client';
 
-// Simplified port of Agent Bazaar's useTelegram hook. No initData
+// Simplified port of an earlier Mini App project's useTelegram hook. No initData
 // validation/auth here — unlike the marketplace, this dashboard shows no
 // per-user or sensitive data, just the trading agent's own public activity,
 // so there's nothing to authenticate. It only needs to know whether it's
@@ -27,7 +27,7 @@ export function useTelegram() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    // Same guard as Agent Bazaar's hook: telegram-web-app.js defines
+    // Same guard as the original hook: telegram-web-app.js defines
     // window.Telegram.WebApp unconditionally even in a plain browser tab —
     // initData is the field that's only non-empty inside a real Mini App.
     if (!tg || !tg.initData) return;

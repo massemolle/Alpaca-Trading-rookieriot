@@ -4,7 +4,7 @@ import { type ReactNode } from 'react';
 import { useTelegram } from '@/hooks/useTelegram';
 
 // Minimal dual web/Telegram-Mini-App shell — a stripped-down version of
-// Agent Bazaar's MiniAppShell pattern, without the nav/wallet/tab-bar
+// A standard Mini App shell pattern, without the nav/wallet/tab-bar
 // pieces this single-page read-only dashboard doesn't need. Works
 // identically as a plain web page (the "Application URL" for hackathon
 // judging) and as a Telegram Mini App (the demo surface for the pitch

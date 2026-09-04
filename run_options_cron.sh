@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermes cron entry point — same lock/silent-delivery shape as
+# Cron entry point — same lock/silent-delivery shape as
 # trading_bot/run_paper_cron.sh, simplified because bot.py already decides
 # for itself what's worth printing (only opens/closes/errors reach stdout).
 # Failures now exit non-zero so monitoring can alert.

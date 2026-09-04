@@ -273,7 +273,7 @@ Unchanged: 0.17Δ, 50% PT, 2× stop, 1 contract, all gates, trend filter, blacko
 
 ## Open questions
 
-- [ ] Final scrub before submission (Sep 3–4): remove old-repo mentions in D16 and third-party identifiers (Gaussly, Agent Bazaar, /home/lab-master, dead Hermes link in README) — deferred 2026-08-28 to avoid touching working code mid-week
+- [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)
 - [ ] Submission format — Guillaume asking lablab Discord / community@lablab.ai; capture exact quotes for each rule
 - [ ] Spike results (D0) — blocked on local credentials
 - [ ] MCP multi-leg path works in our client? (day-1 test)

@@ -9,7 +9,7 @@ Provider is configurable via env (`REASONER_API_BASE`/`REASONER_API_KEY`/
 `REASONER_MODEL`), any OpenAI-compatible chat-completions endpoint. Default
 is the user's own flat-rate mimo-v2.5-pro plan (Xiaomi's direct API,
 `https://token-plan-ams.xiaomimimo.com/v1`) — already used reliably
-elsewhere in their own production infra (Gaussly), zero marginal cost since
+elsewhere in their own production infra, zero marginal cost since
 it's a monthly plan, and confirmed 2026-08-26 via 3/3 live test calls
 returning clean, schema-matching JSON (a genuinely free `:free` model on
 OpenRouter was tried first — nvidia/nemotron-3-ultra-550b-a55b:free — and

@@ -9,7 +9,7 @@ scope notes"):
   signal as-of an arbitrary past date; `_signal_from_df` below is a
   byte-for-byte port of its scoring math onto an already-loaded historical
   df. Resync it if generate_swing_signals' scoring ever changes -- same
-  "flat copy, no auto-sync" convention as Gaussly's dist/modules/*.R), the
+  "flat copy, no auto-sync" convention), the
   REAL TrendFilter, and the REAL volatility-percentile filter, against REAL
   historical daily bars from Alpaca (via trading_bot/backtest/data.py's
   HistoricalDataLoader, reused unmodified).
@@ -41,7 +41,7 @@ from statistics import NormalDist
 
 import pandas as pd
 
-sys.path.insert(0, "/home/lab-master/trading_bot")
+sys.path.insert(0, "trading_bot")  # vendored-source path; stubbed by backtest_lab
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 
 from backtest.data import HistoricalDataLoader  # trading_bot's, unmodified

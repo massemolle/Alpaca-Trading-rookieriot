@@ -1,7 +1,7 @@
 """Main cycle for the Alpaca AI Trading Agents Hackathon submission.
 
 Pipeline, once per invocation (scheduled ~every 30min during market hours by
-Hermes — see run_options_cron.sh):
+cron — see run_options_cron.sh):
 
   0. Reconcile broker positions vs local book — block entries on mismatch.
   1. Manage existing open/pending spreads (only while market is open for

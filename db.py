@@ -1,5 +1,5 @@
 """Writes agent state to the `alpaca_hackathon` schema in Supabase — the
-same Postgres project Agent Bazaar uses, kept in its own schema/namespace so
+same Postgres project as other tooling, kept in its own schema/namespace so
 this hackathon's data never touches the marketplace's tables (see
 supabase/alpaca_hackathon_schema.sql for the DDL).
 
@@ -54,7 +54,7 @@ def record_cycle(
     reasoning: str,
     error: str | None = None,
 ) -> int:
-    """Logs one Hermes tick. Returns the new cycle id so a resulting spread
+    """Logs one scheduler tick. Returns the new cycle id so a resulting spread
     row can reference it — the dashboard's "last N decisions" view and the
     per-spread "why did the agent open this" trace both read off this link.
     """
