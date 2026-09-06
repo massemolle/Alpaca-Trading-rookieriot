@@ -32,6 +32,7 @@ import executor_mcp
 import llm_reasoner
 import portfolio_beta
 import protections
+import reasoner_cache
 import reconciler
 import risk_gate
 import shadow_book
@@ -574,8 +575,25 @@ async def run_cycle() -> None:
             # Immutable executable menu shared by LLM / shadow / random.
             slim_candidates = [{k: v for k, v in c.items() if k != "_plan"} for c in candidates]
 
-            outcome = llm_reasoner.decide(slim_candidates, remaining_budget)
-            reasoning = outcome["reasoning"]
+            # Content-hash cache (Roadmap v2): identical decision-relevant
+            # menu today -> reuse the decision, skip the paid LLM call.
+            cache_key = reasoner_cache.menu_hash(slim_candidates, remaining_budget)
+            cached = reasoner_cache.get(cache_key) if reasoner_cache.enabled() else None
+            if cached is not None:
+                outcome = {"selected": cached["selected"], "reasoning": cached["reasoning"]}
+                reasoning = (
+                    f"(facts unchanged since {cached.get('from', 'earlier today')} — "
+                    f"decision reused, no new LLM call) " + outcome["reasoning"]
+                )
+                logger.info("reasoner cache HIT (%s)", cache_key)
+            else:
+                outcome = llm_reasoner.decide(slim_candidates, remaining_budget)
+                reasoning = outcome["reasoning"]
+                if reasoner_cache.enabled() and not outcome["reasoning"].startswith("LLM reasoning step failed"):
+                    reasoner_cache.put(
+                        cache_key, outcome,
+                        datetime.now(timezone.utc).strftime("%H:%M UTC"),
+                    )
             # Hard-cap LLM selection to remaining_budget (prompt alone is insufficient).
             llm_selected = list(outcome["selected"])[:remaining_budget]
             # Drop any ticker not in the menu.
