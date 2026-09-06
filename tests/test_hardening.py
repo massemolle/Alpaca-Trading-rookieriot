@@ -238,3 +238,17 @@ def test_reconcile_allows_two_spreads_stacking_the_same_symbols(monkeypatch):
     monkeypatch.setattr(rec, "db", FakeDB)
     result = reconcile(Client())
     assert result.ok, result.reason
+
+
+def test_content_order_id_is_idempotent_within_hour(monkeypatch):
+    """Roadmap v2: same intended open within the same UTC hour must produce
+    the same client_order_id (broker-side dedup); different content differs."""
+    import executor_mcp as ex
+
+    a = ex._content_order_id("QQQ", "bear_call", "QQQ260914C00725000", "QQQ260914C00730000", 1)
+    b = ex._content_order_id("QQQ", "bear_call", "QQQ260914C00725000", "QQQ260914C00730000", 1)
+    c = ex._content_order_id("QQQ", "bear_call", "QQQ260914C00725000", "QQQ260914C00730000", 2)
+    d = ex._content_order_id("QQQ", "bear_call", "QQQ260914C00720000", "QQQ260914C00725000", 1)
+    assert a == b
+    assert a != c and a != d
+    assert a.startswith("opt-open-QQQ-bear_call-")

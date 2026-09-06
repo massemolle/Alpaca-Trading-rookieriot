@@ -153,6 +153,24 @@ def _make_client_order_id(underlying: str, direction: str, action: str = "open")
     return f"opt-{action}-{underlying}-{direction}-{ts}-{hex8}"
 
 
+def _content_order_id(underlying: str, direction: str,
+                      short_symbol: str, long_symbol: str, contracts: int) -> str:
+    """Content-derived idempotent id for OPENS (Roadmap v2, trdrbot pattern):
+    same intended trade within the same UTC hour -> same id -> the broker
+    rejects an accidental duplicate submit (ambiguous-timeout retry, crash
+    replay). Closes keep unique ids on purpose — an exit must never be
+    blocked by dedup. Legitimate same-hour re-entry of the identical spread
+    is already ruled out by the protections cooldown.
+    """
+    import hashlib
+
+    window = datetime.now(timezone.utc).strftime("%Y%m%d%H")
+    digest = hashlib.sha1(
+        f"{short_symbol}|{long_symbol}|{contracts}|{window}".encode()
+    ).hexdigest()[:10]
+    return f"opt-open-{underlying}-{direction}-{digest}"
+
+
 def limit_credit_price(checked_credit_per_contract: float, slippage_pct: float | None = None) -> float:
     """Marketable limit for a credit spread: accept no less than this
     per-share credit (Alpaca multi-leg limit is net credit in dollars/share).
@@ -202,7 +220,9 @@ async def open_spread(
     `limit_credit` is dollars-per-share net credit floor. Defaults to the
     plan's estimated credit minus max slippage.
     """
-    cid = _make_client_order_id(plan.underlying, plan.direction, "open")
+    cid = _content_order_id(
+        plan.underlying, plan.direction, plan.short_symbol, plan.long_symbol, contracts,
+    )
     if limit_credit is None:
         limit_credit = limit_credit_price(plan.credit_estimate)
 
