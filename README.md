@@ -55,6 +55,57 @@ as a Telegram Mini App via [@Alpaca_alejdro_bot](https://t.me/Alpaca_alejdro_bot
   [`docs/runbooks/monday.md`](docs/runbooks/monday.md) passes; default
   `MAX_CONTRACTS_PER_SPREAD=1`.
 
+## The full trading cycle, end to end
+
+Two instances run this codebase (team decision D18): Alex/Will's (dashboard above)
+and Guillaume's (https://alpaca-trading-rookieriot.vercel.app — same Telegram Mini
+App pattern). Each instance's `.env` sets its own account, universe and knobs.
+
+Every 30 minutes during US market hours (cron, Mon–Fri), one cycle:
+
+1. **Reconcile** — broker positions vs our journal, quantity *and* side,
+   aggregated per option symbol. Any mismatch blocks new entries (exits still
+   run) until explained.
+2. **Manage the book** — fetch each open spread's mark via MCP; close at 50% of
+   credit captured, stop at 2× credit, force-close near expiry. The virtual
+   books (below) are managed by the same rules.
+3. **Record beta-weighted delta** — real broker greeks on held legs: "the book
+   moves like N shares of SPY."
+4. **Macro blackout check** — inside a configured window (JOLTS/NFP), no new
+   entries this cycle.
+5. **Screening funnel** — universe (liquid ETFs) → liquidity screens → swing
+   signals (neutrals rejected) → trend-alignment filter (optionally ADX-gated)
+   → realized-vol floor. Every rejection is journaled with stage + reason —
+   empty-menu cycles are fully attributable.
+6. **Spread building** — ~0.17Δ short leg (OTM enforced), $5 wide, 10–21 DTE,
+   per-leg quote liquidity checks, credit estimated from MCP snapshots.
+7. **Risk gate #1** — max loss % of equity, daily loss circuit breaker,
+   concurrent-spread cap, per-underlying concentration, correlation-cluster
+   caps, buying power.
+8. **The AI decides** — survivors become an immutable candidate menu; a
+   headless Claude call (empty scratch dir, no tools) receives every number as
+   a cited fact with provenance — including what the book already holds on
+   each ticker — and selects candidates or abstains. Citations are checked;
+   any failure → abstention.
+9. **Risk gate #2 (pre-trade)** — re-fetch account and quotes, staleness and
+   credit-shrink checks, all risk rules re-run quantity-aware, fail-closed.
+10. **Execution** — one multi-leg limit order at a bounded credit,
+    idempotent client order id, fill confirmation with sign-correct credit
+    accounting; unfilled orders tracked as pending and reconciled.
+11. **The evidence layer** — on the same menu, a mechanical rule and a random
+    policy "trade" virtual books (live ablation), and *every* candidate is
+    tracked in a menu/regret book whether picked or not. The decision journal
+    stores the AI's verbatim cited reasoning; an account snapshot records
+    equity beside SPY for benchmark attribution. All of it renders on the
+    dashboard's `/audit` and `/lab` pages.
+
+**Nightly (21:00 UTC, Mon–Fri):** `evening_context.py` compiles the day's
+evidence (cycles, journal, books, regret, objective market stats); a Claude
+Fable session — with its own skills and charter — may then edit the trading
+algorithm. Its changes survive only if compile + the full test suite + a forced
+simulation cycle (and a dashboard build, if touched) all pass; otherwise
+everything auto-reverts. Verdicts, diaries and gate logs are public on `/audit`.
+
 ## Running it
 
 ```
@@ -145,3 +196,31 @@ confidence than the underlying check actually supported.
 - Quantity-aware sizing + pretrade gates; limit opens/closes; fill/pending
   states; broker reconciliation; monitor mark ×100; market-hours ordinary
   closes; cron fail-exit; unified selector; lab schema; ETF freeze + neutral reject.
+
+## Roadmap v2 — propositions (post-hackathon)
+
+The hackathon week plus a code-level review of 18 external repositories (12
+hackathon rivals, 6 mature ecosystem projects) produced a prioritized upgrade
+plan: [docs/ROADMAP_V2.md](docs/ROADMAP_V2.md). Highlights:
+
+- **Lab on real prices** — Alpaca's historical options bars (since Feb 2024,
+  free plan) + optopsy-style fill/exit machinery replace the Black-Scholes
+  proxy: measured real-price P&L instead of relative-only claims.
+- **Learn honestly** — pre-registered thesis attribution ("never learn from a
+  lucky win"), per-gate regret scorecards, counterfactual repricing of every
+  rejected candidate.
+- **Trade the right regime** — IV/RV regime router (sell premium only when
+  it's worth selling; debit spreads when vol is cheap), the AI's regime call
+  compiled into binding policy, expiries that must clear the macro calendar.
+- **Size by earned trust** — calibration-shrunk Kelly: the AI's stated
+  confidence only earns position size once measurement proves it means
+  something.
+- **Evolve with evidence** — shadow paired A/B promotion (challenger vs
+  incumbent on identical live cycles, promoted at P(better) ≥ 0.90) layered on
+  the nightly engineer's correctness gate.
+- **Protections "Gate 0"** — durable cooldown / stop-streak / drawdown locks;
+  order-lifecycle state machine; startup reconciliation; expiry as an explicit
+  event.
+
+Standing rule: no real capital until the instrumented system shows live
+positive expectancy against its own baselines over an 8–12-week paper runway.
