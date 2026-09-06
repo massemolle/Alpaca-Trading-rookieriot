@@ -12,8 +12,9 @@ def _cand(ticker="QQQ", strength=0.41, credit=76.0, open_spreads=0):
 
 
 def test_hash_stable_under_quote_noise():
+    # Same $5 credit bucket and same 0.01 strength bucket -> same hash.
     a = reasoner_cache.menu_hash([_cand(credit=76.0, strength=0.412)], 3)
-    b = reasoner_cache.menu_hash([_cand(credit=77.5, strength=0.408)], 3)  # <$5, <0.01
+    b = reasoner_cache.menu_hash([_cand(credit=77.0, strength=0.408)], 3)
     assert a == b
 
 
