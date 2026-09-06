@@ -31,6 +31,7 @@ import db
 import executor_mcp
 import llm_reasoner
 import portfolio_beta
+import protections
 import reconciler
 import risk_gate
 import shadow_book
@@ -354,6 +355,18 @@ async def find_candidates(
     signals = generate_swing_signals(tickers, client)
     # Strategy freeze: neutral never becomes a bear-call by accident.
     signals = [s for s in signals if getattr(s, "direction", None) in ("long", "short")]
+    # Gate 0 per-underlying protections: cooldown after a stop-out, chronic-
+    # loser lock. Journaled like every other funnel stage.
+    kept_signals = []
+    for sig in signals:
+        p = protections.check_underlying(sig.ticker)
+        if p.allowed:
+            kept_signals.append(sig)
+        else:
+            logger.info("%s locked by protections: %s", sig.ticker, "; ".join(p.reasons))
+            funnel_rejections.append({"ticker": sig.ticker, "stage": "protections",
+                                      "reasons": p.reasons})
+    signals = kept_signals
     signals_with_vol, filter_rejections = _apply_trend_and_volatility_filters(client, signals)
     funnel_rejections.extend(filter_rejections)
 
@@ -528,10 +541,15 @@ async def run_cycle() -> None:
         # trigger is live, a fresh spread would be flushed next cycle at the
         # cost of the bid/ask spread — so no screening either.
         close_window, close_window_reason = risk_gate.in_contest_close_window()
+        # Gate 0 (Roadmap v2): journal-derived protections — stop-streak and
+        # drawdown halts. Exits/management above are never blocked.
+        prot = protections.global_halt()
         if not options_level_ok:
             reasoning = f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
         elif blackout:
             reasoning = f"No new positions: {blackout_reason}. Exits stay active."
+        elif not prot.allowed:
+            reasoning = f"No new positions — protections: {'; '.join(prot.reasons)}. Exits stay active."
         elif close_window:
             reasoning = (
                 f"No new positions: {close_window_reason} — any spread opened now "
@@ -549,7 +567,7 @@ async def run_cycle() -> None:
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
 
-        if remaining_budget > 0 and market_open and options_level_ok and not blackout and not close_window:
+        if remaining_budget > 0 and market_open and options_level_ok and not blackout and not close_window and prot.allowed:
             candidates, gate_rejections = await find_candidates(
                 mcp, client, account, len(open_spreads),
             )
