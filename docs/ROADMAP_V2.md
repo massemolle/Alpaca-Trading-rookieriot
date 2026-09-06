@@ -95,9 +95,75 @@ a meaningful sample (≥8–12 weeks paper, attribution-clean).*
   transition someday.
 - Agent-as-MCP-server (VibeHedge) — expose the agent's own tools for inspection.
 
-## Suggested sequence
+## Round 2 — ecosystem sweep additions (2026-09-06: freqtrade, nautilus_trader,
+## optopsy, TradingAgents, ai-hedge-fund, FinMem)
 
-Weeks 1–2: Tier 1 + ops hardening (mostly nightly-engineer-implementable under review).
-Weeks 3–4: Tier 2 regime layer + Tier 3 exits. Then ≥4 weeks of untouched paper
-trading measured by the Tier-1 instruments; only then Tier 4 and the sizing ladder.
-Real money is a question we ask the DATA at the end of that runway, not the calendar.
+### The headline: the lab graduates to REAL option prices *(M; do first)*
+Alpaca's historical options endpoints (`/v1beta1/options/bars`, trades) cover
+**since Feb 2024 on the free plan** (200 calls/min, ≤100 contracts/request) — our
+entire 16-month window. No historical NBBO quotes, so: real daily bars for marks +
+optopsy's slippage models on top. Adopt from optopsy (small, pandas, licence-
+compatible): its chain-row schema, `_calculate_fill_price` (mid / half-spread /
+liquidity-scaled / per-leg penalty) + commission model, and its vectorized
+first-threshold-crossing exits (exactly our 50% PT / 2× stop semantics). Keep
+Black-Scholes only as fallback for unquoted strikes. This converts the lab's one
+confessed weakness — proxy pricing, relative-only claims — into measured
+real-price P&L, and every past and future lab number gets more credible at once.
+
+### Protections: a deterministic "Gate 0" *(freqtrade; S)*
+Durable locks in a `protections` Postgres table, checked before both gates:
+- **CooldownPeriod** per underlying after any stop-out (would have stopped the
+  LLM re-shorting QQQ 30 min after a stop);
+- **StoplossGuard**: N stop exits within a window → halt new entries (2 stops in
+  a session = the vol regime moved);
+- **MaxDrawdown** global lock over a lookback (the account-level breaker we lack);
+- **LowProfitPairs**: chronic-loser symbol lock.
+Each is <100 LOC of SQL-over-journal; locks survive restarts by construction.
+
+### Order lifecycle + reconciliation as first-class *(nautilus_trader; S–M)*
+- ~40-line explicit order FSM (dict of legal (state, event) transitions) that
+  RAISES on illegal journal transitions — silent broker-state drift becomes loud.
+- Cron-start reconciliation that materializes missing events (fills/assignments
+  that happened while we slept) as corrective journal rows BEFORE gates run.
+- Expiration as an explicit lifecycle event: expiry-eve flatten rule + settlement
+  journal entry, never an implicitly vanishing position.
+
+### Lookahead tripwire *(freqtrade's bias detectors, adapted; M)*
+Truncate-and-diff regression test: recompute every gate/selector input with data
+cut at decision time and assert identical decisions. Cheap standing guard against
+the lab's — and the nightly engineer's — subtlest failure mode.
+
+### LLM-layer upgrades *(TradingAgents / FinMem / ai-hedge-fund)*
+- **Content-hash selector cache** *(S)*: hash the fact bundle (excluding as_of);
+  unchanged facts since last cycle → skip the paid LLM call. Cost, latency, and
+  decision-consistency win on a 30-min cadence.
+- **ClampEvents** *(S)*: every gate veto/resize emits {limit, before, after} into
+  the journal — "conviction requests, risk disposes", with receipts.
+- **Abstain ≠ neutral** *(S)*: audit our ablation books so abstentions are
+  excluded from blends/denominators rather than counted as neutral opinions.
+- **Lessons memory, done auditable** *(M)*: two-phase pending→resolved lessons
+  table (realized P&L + 2–4-sentence reflection), retrieved point-in-time and fed
+  to the selector as CITED FACTS; leakage rules pinned as regression tests.
+- **Citation credit assignment** *(S, after lessons)*: selector cites lesson-ids;
+  resolution adjusts earned_score only on cited lessons — learned relevance
+  without FAISS or statefulness (FinMem's one non-theater mechanism).
+- **Anti-anchoring prompt devices** *(S)*: "the other side has not spoken — open
+  with your own case"; "do not manufacture a direction merely to appear decisive"
+  (in schema descriptions, so prompt edits can't lose them).
+- **Backtest = live loop** *(M, direction)*: converge the lab toward iterating the
+  production cycle function over history with a SimBroker + per-cycle receipts —
+  point-in-time correctness by construction (pairs naturally with the optopsy port).
+
+## Suggested sequence (revised after round 2)
+
+**Week 1**: lab-on-real-prices + optopsy machinery; protections Gate 0; order FSM +
+startup reconciliation; the cheap S items (selector cache, ClampEvents,
+abstain-vs-neutral, heartbeats, content-derived order ids).
+**Week 2**: Tier 1 learning instruments — attribution + gate regret, lessons table,
+citation credit, counterfactual repricing; calibration recording starts.
+**Weeks 3–4**: Tier 2 regime router + regime-as-control; Tier 3 exit upgrades +
+calibration-shrunk sizing; lookahead tripwire.
+**Then ≥4 weeks untouched paper runway**, measured by the new instruments, while
+Tier 4 (shadow paired A/B promotion) is built alongside without touching live
+behavior. Real money remains a question we ask the DATA at the end of the runway,
+not the calendar.
