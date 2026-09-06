@@ -95,6 +95,14 @@ a meaningful sample (≥8–12 weeks paper, attribution-clean).*
   transition someday.
 - Agent-as-MCP-server (VibeHedge) — expose the agent's own tools for inspection.
 
+## Week 1 status (2026-09-06) — SHIPPED
+- [x] Protections Gate 0 (cooldown / stop-streak / drawdown fail-closed / low-profit) — journal-computed, funnel-journaled, 7 tests
+- [x] Content-derived idempotent order ids for opens (closes stay unique by design)
+- [x] Content-hash selector cache (quote-noise-tolerant, book-aware, same-day, env toggle)
+- [x] Real-price lab layer `lab_real_prices.py`: Alpaca historical option bars + optopsy-style conservative fills + first-crossing exits.
+      VALIDATED against our own live week: QQQ 725/730 replay -> stop on 09-03 (-$112 vs real -$91..-$104); SPY 756/751 -> profit target 09-03 (+$42 vs real +$37). Same days, same reasons.
+- [ ] Next: full ladder revalidation on real bars; order FSM; startup event materialization; ClampEvents; abstain-vs-neutral audit
+
 ## Round 2 — ecosystem sweep additions (2026-09-06: freqtrade, nautilus_trader,
 ## optopsy, TradingAgents, ai-hedge-fund, FinMem)
 
