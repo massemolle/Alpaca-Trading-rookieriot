@@ -2,6 +2,65 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-07 evening (Labor Day — no trading; eve of post-hackathon re-entry)
+
+**Evidence: none, and that's the finding.** Market closed all day (weekend +
+Labor Day); all 12 cycles skipped, zero candidates, zero opens in any book.
+Ablation and regret tables are byte-identical to what I classified on 09-04
+(30 drops, 4 marginally positive +$29.6 vs −$924.9 aggregate) — per
+analyze-regret: no new observations, no pattern, no selection or pipeline
+change justifiable tonight.
+
+**Verdict on the 09-04 watch items.** (1) Entry block: HELD — no new spread
+appeared anywhere; morning cycles journaled the contest skip with zero
+candidates and zero shadow opens. Weak test though: the market never opened.
+(2) The two carried spreads (QQQ 705/700 bull put, XLE 65/70 bear call, exp
+09-14) were never force-closed — "pending, market closed" all weekend — and
+now won't be, because **the team extended `CONTEST_END_UTC` today ~17:58Z**
+(inferred from the journal: cycles ≤17:30Z say "contest deadline", the
+off-grid 17:58Z manual run and everything after say "Market is closed", and
+`in_contest_close_window` never un-latches on its own; I verified only that
+`.env` sets the key, not its value). Those two spreads re-enter normal
+profit-target/stop management at tomorrow's open, DTE 6.
+
+**State change I did not make but must flag: Roadmap v2 W1 is live.** Five
+team commits (protections Gate 0, content-hash reasoner cache, idempotent
+open order ids, real-price lab layer) run for the first time with entries
+enabled tomorrow. Pre-flight desk-check of `protections.py` against current
+journal data: stop_streak (24h window — last stops 09-03) quiet, cooldown
+(90 min) quiet, drawdown (~0.02% vs 3% cap) quiet, **but the low_profit lock
+WILL fire for QQQ**: trailing-7d realized ≈ −$626 (09-02/03 stop cluster +
+09-04 churn) < −$300 floor. Expect QQQ rejected at `stage: "protections"`
+Tue–Wed; it ages out ~09-10 15:30Z (stops leave the window), fully by 09-11.
+That is the gate working as designed on losses whose causes were already
+fixed (book-aware judge 09-02, entry/exit symmetry 09-04) — do not "fix" it.
+
+**Change (one small theme: dormant-day journals must name the operative
+reason).** Today's misattribution was my own 09-04 edit: I put the
+`close_window` branch above `market_open`, so holiday cycles claimed "any
+spread opened now would be force-closed" when nothing could trade at all —
+it cost real analysis effort tonight to disentangle, and tomorrow the same
+ladder would have mislabeled protections-vs-closed days. Extracted the
+ladder into pure `bot._skip_reasoning()` with precedence: options-level
+alarm → market closed → blackout → protections → contest window. Display
+only — the trade-gating `if` (which requires ALL conditions) is untouched.
+`tests/test_skip_reasoning.py` (5 tests) pins the precedence, including
+today's exact case.
+
+**Watch tomorrow (first live day of v2).** (1) QQQ rejected by low_profit
+with the ≈−$6xx figure in the reason — if it's NOT rejected, protections
+aren't wired the way I read them. (2) Reasoner cache: repeated identical
+menus should journal "(facts unchanged since … — decision reused)" — check
+the reused reasoning still cites facts sanely. (3) The two carried spreads
+managed normally; no contest force-close should fire. (4) First real menus
+since 09-04: shadow/menu books repopulate — regret analysis has data again.
+
+**Proposals (not touched).** Still open from prior nights: per-spread cycle
+rows (bot.py records one cycle per opened spread), `closed_force` status for
+force-closes. New: with `lab_real_prices.py` in, the L3b ADX-gate hypothesis
+from 09-01 can finally be adjudicated on real option bars — one team-run
+`python backtest_lab.py` decides it; the variant is still dark in live code.
+
 ## 2026-09-04 evening (reviewing trading day 2026-09-04 — day 5, post-deadline)
 
 **The headline is not a selection problem — it's a lifecycle asymmetry.** The

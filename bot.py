@@ -478,6 +478,41 @@ async def find_candidates(
     return candidates, gate_rejections
 
 
+def _skip_reasoning(
+    *,
+    options_level_ok: bool,
+    options_level,
+    market_open: bool,
+    blackout: bool,
+    blackout_reason: str | None,
+    prot: protections.ProtectionResult,
+    close_window: bool,
+    close_window_reason: str | None,
+) -> str:
+    """Journaled reason when a cycle screens no candidates.
+
+    Precedence: account misconfiguration first (operator alarm), then the
+    closed market, then the entry suppressions in gate order. The closed
+    market must outrank the suppressions: on 2026-09-07 (holiday) every
+    morning cycle journaled the contest-window message, implying entries
+    were being suppressed on a day when nothing could trade at all.
+    """
+    if not options_level_ok:
+        return f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
+    if not market_open:
+        return "Market is closed — not screening for new candidates this cycle."
+    if blackout:
+        return f"No new positions: {blackout_reason}. Exits stay active."
+    if not prot.allowed:
+        return f"No new positions — protections: {'; '.join(prot.reasons)}. Exits stay active."
+    if close_window:
+        return (
+            f"No new positions: {close_window_reason} — any spread opened now "
+            f"would be force-closed on the next cycle. Exits stay active."
+        )
+    return "No eligible candidates this cycle."
+
+
 async def run_cycle() -> None:
     client = AlpacaClient()
 
@@ -545,21 +580,16 @@ async def run_cycle() -> None:
         # Gate 0 (Roadmap v2): journal-derived protections — stop-streak and
         # drawdown halts. Exits/management above are never blocked.
         prot = protections.global_halt()
-        if not options_level_ok:
-            reasoning = f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
-        elif blackout:
-            reasoning = f"No new positions: {blackout_reason}. Exits stay active."
-        elif not prot.allowed:
-            reasoning = f"No new positions — protections: {'; '.join(prot.reasons)}. Exits stay active."
-        elif close_window:
-            reasoning = (
-                f"No new positions: {close_window_reason} — any spread opened now "
-                f"would be force-closed on the next cycle. Exits stay active."
-            )
-        elif market_open:
-            reasoning = "No eligible candidates this cycle."
-        else:
-            reasoning = "Market is closed — not screening for new candidates this cycle."
+        reasoning = _skip_reasoning(
+            options_level_ok=options_level_ok,
+            options_level=options_level,
+            market_open=market_open,
+            blackout=blackout,
+            blackout_reason=blackout_reason,
+            prot=prot,
+            close_window=close_window,
+            close_window_reason=close_window_reason,
+        )
         gate_rejections: list[dict] = []
         pre_trade_rejections: list[dict] = []
         shadow_selected: list[str] = []
