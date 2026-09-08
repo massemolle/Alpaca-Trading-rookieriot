@@ -19,6 +19,17 @@ earlier version's guessed field names — see git history for what was wrong):
   Param name is `underlying_symbols` (plural, comma-separated string),
   unlike get_option_chain's `underlying_symbol` (singular) — a real,
   easy-to-miss inconsistency in Alpaca's own tool schemas.
+  PAGINATION MATTERS (live incident 2026-09-08): a single `limit: 100` page
+  of a dense chain (SPY's Friday expirations list strikes from ~half spot
+  up) is exhausted ~150 points below the money — every strike the delta
+  targeting then sees is deep OTM, and the "best" plan is a degenerate
+  $1-credit spread at the page boundary (SPY 612/607 vs spot 767, cycles
+  126-135). Dense chains the page never reaches ATM on (GLD/XLF/TLT)
+  produced "no viable spread plan" every cycle instead. `page_token` is the
+  REST-verified request param for the `next_page_token` cursor (see
+  lab_real_prices.py); this MCP server version accepting it is NOT
+  independently verified, so pagination failures degrade to the pages
+  already fetched rather than erroring the ticker.
 - `get_option_snapshot` response is `{"data": {"snapshots": {symbol: {...}}}}`
   — one level deeper than assumed originally — and each snapshot's quote is
   under camelCase `latestQuote: {bp, ap, bs, as, ...}` (bid/ask price/size),
@@ -71,6 +82,12 @@ def _mid_from_snapshot(snap: dict) -> float | None:
 
 LONG_LEG_MAX_SPREAD_PCT = 0.25
 
+# How many nearest-to-target-delta OTM strikes get quoted per ticker. The
+# chosen short is the liquid strike nearest the delta target, so anything
+# past the ~20 nearest is only reachable when 20 closer strikes all failed
+# liquidity — at which point the chain isn't tradeable anyway.
+SHORT_CANDIDATE_COUNT = 20
+
 
 def _passes_liquidity(contract: dict, snap: dict, max_spread_override: float | None = None) -> bool:
     """Per-contract liquidity gate (2026-08-26 research pass) — equity-level
@@ -103,22 +120,64 @@ def _passes_liquidity(contract: dict, snap: dict, max_spread_override: float | N
     return spread_pct <= threshold
 
 
+# One page must reach past ATM on the densest chain we trade (SPY: ~380
+# strikes below spot on a Friday expiration); 500 does with margin. The
+# page cap only bounds a runaway cursor — 2 pages covers every live chain.
+CONTRACTS_PAGE_LIMIT = 500
+MAX_CONTRACT_PAGES = 8
+
+
 async def _fetch_contracts(mcp: AlpacaMCP, ticker: str, option_type: str, min_exp: date, max_exp: date) -> list[dict]:
     cache_key = (ticker, option_type, min_exp.isoformat(), max_exp.isoformat())
     if cache_key in _contract_cache:
         return _contract_cache[cache_key]
-    result = await mcp.call(
-        "get_option_contracts",
-        {
-            "underlying_symbols": ticker,
-            "type": option_type,
-            "status": "active",
-            "expiration_date_gte": min_exp.isoformat(),
-            "expiration_date_lte": max_exp.isoformat(),
-            "limit": 100,
-        },
-    )
-    contracts = (result or {}).get("data", {}).get("option_contracts", [])
+    base_args = {
+        "underlying_symbols": ticker,
+        "type": option_type,
+        "status": "active",
+        "expiration_date_gte": min_exp.isoformat(),
+        "expiration_date_lte": max_exp.isoformat(),
+        "limit": CONTRACTS_PAGE_LIMIT,
+    }
+    try:
+        result = await mcp.call("get_option_contracts", base_args)
+    except Exception:
+        # Never worse than the pre-pagination builder: if this MCP server
+        # version rejects the larger page size, retry the exact legacy call.
+        logger.warning(
+            "%s: get_option_contracts rejected limit=%d, retrying legacy limit=100",
+            ticker, CONTRACTS_PAGE_LIMIT,
+        )
+        result = await mcp.call("get_option_contracts", {**base_args, "limit": 100})
+    data = (result or {}).get("data", {})
+    contracts = list(data.get("option_contracts") or [])
+    page_token = data.get("next_page_token")
+    pages_fetched = 1
+    while page_token and pages_fetched < MAX_CONTRACT_PAGES:
+        try:
+            result = await mcp.call(
+                "get_option_contracts", {**base_args, "page_token": page_token}
+            )
+        except Exception:
+            # `page_token` is REST-verified but not verified against this MCP
+            # server version — a truncated chain still builds spreads (today's
+            # behavior), a raised error would drop the ticker entirely.
+            logger.warning(
+                "%s: chain pagination failed after %d page(s); proceeding with "
+                "%d contracts (chain may be truncated)",
+                ticker, pages_fetched, len(contracts), exc_info=True,
+            )
+            break
+        data = (result or {}).get("data", {})
+        contracts.extend(data.get("option_contracts") or [])
+        page_token = data.get("next_page_token")
+        pages_fetched += 1
+    if page_token:
+        logger.warning(
+            "%s: chain still paginated after %d pages (%d contracts) — dense "
+            "chain or runaway cursor, proceeding with what we have",
+            ticker, pages_fetched, len(contracts),
+        )
     _contract_cache[cache_key] = contracts
     return contracts
 
@@ -167,9 +226,6 @@ async def build_spread(
     exp_contracts = [c for c in contracts if c.get("expiration_date") == chosen_expiration]
     dte_days = (datetime.strptime(chosen_expiration, "%Y-%m-%d").date() - today).days
 
-    symbols = [c["symbol"] for c in exp_contracts]
-    snap_by_symbol = await _fetch_snapshots(mcp, symbols)
-
     def delta_of(contract: dict) -> float:
         strike = float(contract["strike_price"])
         return abs(bs_delta(
@@ -181,7 +237,44 @@ async def build_spread(
         strike = float(contract["strike_price"])
         return strike < spot_price if is_bull_put else strike > spot_price
 
-    # The short leg must be OTM relative to spot. The delta sort below would
+    same_exp_by_strike = {float(c["strike_price"]): c for c in exp_contracts}
+
+    def snap_long_strike(short_strike: float) -> float:
+        # Long leg: `spread_width_dollars` further out-of-the-money than the
+        # short strike — lower strike for a put spread (further OTM = lower),
+        # higher strike for a call spread (further OTM = higher). Snapped to
+        # the closest available strike rather than failing outright —
+        # standard option chains aren't guaranteed to have every $5 increment.
+        target = (
+            short_strike - limits.spread_width_dollars
+            if is_bull_put
+            else short_strike + limits.spread_width_dollars
+        )
+        if target not in same_exp_by_strike:
+            target = min(same_exp_by_strike, key=lambda k: abs(k - target))
+        return target
+
+    # Delta is computed in-process (no quotes needed), so shortlist strikes
+    # BEFORE fetching snapshots: with the chain now paginated in full, a
+    # dense expiration can hold 300+ contracts, and quoting all of them per
+    # ticker per cycle is pointless load on the snapshot endpoint. The
+    # shortlist is the OTM strikes nearest the target delta plus each one's
+    # snapped long leg — anything liquidity might still reject is well past
+    # what a sane short strike could be.
+    otm_by_delta = sorted(
+        ((c, delta_of(c)) for c in exp_contracts if is_otm(c)),
+        key=lambda cd: abs(cd[1] - limits.short_leg_target_delta),
+    )
+    shortlist = otm_by_delta[:SHORT_CANDIDATE_COUNT]
+    snapshot_symbols: list[str] = []
+    for c, _ in shortlist:
+        long_c = same_exp_by_strike[snap_long_strike(float(c["strike_price"]))]
+        for symbol in (c["symbol"], long_c["symbol"]):
+            if symbol not in snapshot_symbols:
+                snapshot_symbols.append(symbol)
+    snap_by_symbol = await _fetch_snapshots(mcp, snapshot_symbols)
+
+    # The short leg must be OTM relative to spot. The delta sort would
     # normally guarantee that, but only among *liquidity-passing* strikes: on
     # the indicative feed the OTM side of a thin chain can quote too wide to
     # pass, leaving only ITM strikes as candidates — and an ITM short's "credit"
@@ -190,8 +283,8 @@ async def build_spread(
     # credit > max loss). If no OTM strike is liquid, there is no real spread
     # to build here.
     liquid_candidates = [
-        (c, delta_of(c)) for c in exp_contracts
-        if is_otm(c) and _passes_liquidity(c, snap_by_symbol.get(c["symbol"], {}))
+        (c, d) for c, d in shortlist
+        if _passes_liquidity(c, snap_by_symbol.get(c["symbol"], {}))
     ]
     if not liquid_candidates:
         logger.info(
@@ -206,20 +299,7 @@ async def build_spread(
     short_contract, _ = liquid_candidates[0]
     short_strike = float(short_contract["strike_price"])
 
-    # Long leg: `spread_width_dollars` further out-of-the-money than the
-    # short strike — lower strike for a put spread (further OTM = lower),
-    # higher strike for a call spread (further OTM = higher).
-    target_long_strike = (
-        short_strike - limits.spread_width_dollars
-        if is_bull_put
-        else short_strike + limits.spread_width_dollars
-    )
-    same_exp_by_strike = {float(c["strike_price"]): c for c in exp_contracts}
-    if target_long_strike not in same_exp_by_strike:
-        # Snap to the closest available strike rather than failing outright —
-        # standard option chains aren't guaranteed to have every $5 increment.
-        closest_strike = min(same_exp_by_strike, key=lambda k: abs(k - target_long_strike))
-        target_long_strike = closest_strike
+    target_long_strike = snap_long_strike(short_strike)
     long_contract = same_exp_by_strike[target_long_strike]
 
     long_snap = snap_by_symbol.get(long_contract["symbol"], {})

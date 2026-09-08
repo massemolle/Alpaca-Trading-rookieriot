@@ -2,6 +2,85 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-08 evening (reviewing trading day 2026-09-08 — first live day on Roadmap v2 W1 code)
+
+**Evidence (analyze-regret first, as charged).** Ablation, today only: LLM
+book 4 opens (mark ≈ −$128), shadow rule 15 opens (−$309.5 — it stacked
+XLK@182.5 five times), random 4 opens (−$86). Regret: dropped-positive is
+trivial (6 rows all-time, +$37.6 total, best +$15.1) and every one of
+today's drops reads sound against the cited facts — the judge's *rejections*
+are not the weak link. Two real patterns instead:
+
+1. **Pipeline (class c) — the chain fetch truncates dense chains.**
+   `spread_builder._fetch_contracts` called `get_option_contracts` with
+   `limit: 100` and never followed `next_page_token` (documented in the
+   module's own docstring since 08-26). SPY's dense Friday 09-18 expiration
+   exhausts 100 puts ~150 points below spot, so delta targeting only ever
+   saw deep-OTM strikes: every SPY candidate today (cycles 126–135) was the
+   same degenerate $1-credit / $499-max-loss spread at the page boundary
+   (short 607–621 vs spot 767; the 0.13Δ short belongs at ~755, which is
+   exactly where 09-04's plans landed via the sparser Monday-expiry chain).
+   The same truncation explains GLD/XLF/TLT dying in spread_builder with
+   "no viable spread plan" every single cycle — D21's universe expansion has
+   been silently non-functional for the dense-chain half of the universe.
+   The judge spent attention correctly rejecting the SPY junk every cycle;
+   the shadow book wasted 3 virtual positions on it.
+
+2. **Judge (class b) — stacking decisions are noise, ≥3 contradictions
+   today.** Cycle 133 abstained on XLK (strength 0.346, ~24% credit/risk,
+   1 open spread: "not strong enough conviction to justify deliberately
+   doubling down"); cycle 134, thirty minutes later with near-identical
+   facts (0.35, ~25%, 1 open), took it ("justifies concentrating"); cycle
+   135 then added a *third* XLK spread on top of $837.50 already held.
+   Identical facts, opposite decisions — the prompt's stacking guidance is
+   a soft "prefer... by default" with no deterministic rule, and the $ caps
+   don't bind (20% of equity ≈ $19.8k vs XLK's $1,273). Not touched tonight
+   (one theme per night); see proposal below.
+
+**Changes (theme: un-truncate the chain; spread_builder.py + tests).**
+- `_fetch_contracts` now pages: `limit` 100 → 500 and follows
+  `next_page_token` via `page_token` (REST-verified param name, see
+  lab_real_prices.py; NOT verified against alpaca-mcp-server 2.3.0's tool
+  schema — so both are guarded: a rejected `limit=500` retries the exact
+  legacy call, a rejected `page_token` degrades to the pages already
+  fetched with a loud log line. Never worse than today's behavior.)
+  Page cap 8 bounds a runaway cursor.
+- Snapshot load stays bounded: deltas are computed in-process, so the
+  builder now shortlists the 20 nearest-to-target-delta OTM strikes (plus
+  each one's snapped long leg) *before* fetching quotes, instead of
+  quoting every contract of the expiration (a fully-paginated SPY
+  expiration would have been a 300-symbol snapshot call). Long-strike
+  snapping is factored into `snap_long_strike()`, semantics unchanged.
+- `tests/test_spread_builder_pagination.py` (5 tests): dense-chain page-1
+  truncation must paginate and land the short near the delta target (pins
+  today's SPY shape); `page_token` rejection degrades to page 1; `limit`
+  rejection retries legacy 100; snapshot request ≤ 2×shortlist symbols;
+  runaway cursor stops at the page cap. Existing OTM-guard tests
+  desk-checked against the new flow — chosen strikes unchanged.
+
+**Watch tomorrow.** (1) `state/mcp_server.log` + bot.log for the two
+fallback warnings — if "pagination failed" appears, the MCP tool rejects
+`page_token` and the fix is running in legacy mode on dense chains; that's
+the signal to bump alpaca-mcp-server (team call, pinned dep). (2) SPY
+candidates should now show strikes ~750s with real credit, and GLD/XLF/TLT
+should start reaching the menu (or die honestly at liquidity/vol stages) —
+the funnel journal will say which. (3) XLK: three live bull puts
+(182.5/177.5 ×2, 185/180) + XLE bear call + carried QQQ 705/700; if XLK
+gaps down, that's ~$1,273 max loss on one name — the stacking pattern's
+cost made real.
+
+**Proposals (not touched tonight).**
+- *Stacking rule for the judge* (next night's candidate theme, via
+  tune-reasoner-prompt): a deterministic policy — e.g. "never a third
+  spread on one underlying; a second requires strength ≥0.30 AND
+  credit/max_loss ≥15%, cited" — would have kept 133/134/135 consistent
+  in either direction. One more day of journal evidence makes it a ≥2-day
+  pattern under the analyze-regret bar.
+- *Post-close snapshots recorded SPY at 373.0* (20:00/20:30Z rows,
+  vs 766 intraday) — a bad after-hours quote flowing into
+  `account_snapshots.spy_price`. Display/telemetry only, but worth a
+  sanity clamp when the team touches record_snapshot.py.
+
 ## 2026-09-07 evening (Labor Day — no trading; eve of post-hackathon re-entry)
 
 **Evidence: none, and that's the finding.** Market closed all day (weekend +
