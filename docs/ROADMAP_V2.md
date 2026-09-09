@@ -101,6 +101,12 @@ a meaningful sample (≥8–12 weeks paper, attribution-clean).*
 - [x] Content-hash selector cache (quote-noise-tolerant, book-aware, same-day, env toggle)
 - [x] Real-price lab layer `lab_real_prices.py`: Alpaca historical option bars + optopsy-style conservative fills + first-crossing exits.
       VALIDATED against our own live week: QQQ 725/730 replay -> stop on 09-03 (-$112 vs real -$91..-$104); SPY 756/751 -> profit target 09-03 (+$42 vs real +$37). Same days, same reasons.
+- [x] Monthly-horizon reconfig (2026-09-09): contest deadline → rolling Dec 6; macro
+      calendar refreshed (CPI Sep 11, FOMC Sep 16, NFP Oct 2); DTE A/B MEASURED on
+      live config — 30-45 "textbook" LOSES (−$323/64%/DD −$1,051) vs 10-21
+      (+$575/72%/DD −$552): more exposed days = more stop clips for our exits.
+      DTE stays 10-21, by evidence not habit. (Proxy-lab caveat: entry-frozen vol
+      is cruder over 45d — recheck when real-price ladder lands.)
 - [ ] Next: full ladder revalidation on real bars; order FSM; startup event materialization; ClampEvents; abstain-vs-neutral audit
 
 ## Round 2 — ecosystem sweep additions (2026-09-06: freqtrade, nautilus_trader,
