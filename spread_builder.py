@@ -88,6 +88,21 @@ LONG_LEG_MAX_SPREAD_PCT = 0.25
 # liquidity — at which point the chain isn't tradeable anyway.
 SHORT_CANDIDATE_COUNT = 20
 
+# Expirations tried per ticker per cycle, nearest-first (2026-09-10 nightly:
+# "nearest expiration THAT BUILDS"). One snapshot batch per attempt, and an
+# attempt beyond the first happens only where the ticker previously died or
+# built degenerate geometry, so the cap bounds API load, not capability. A
+# chain whose three nearest expirations are all junk isn't tradeable anyway.
+MAX_EXPIRATION_ATTEMPTS = 3
+
+# A plan is "on-width" when its strike width is within this fraction of
+# spread_width_dollars either way (grid snapping legitimately lands at e.g.
+# $2.5 or $7.5 around a $5 target). Off-width plans — GLD 2026-09-09: the
+# 09-21 chain topped out at 420, forcing width-1 spreads with ~$10-20 credit
+# against ~$85 max loss — defer to a later expiration that builds on-width,
+# and are kept only as a last resort so no ticker that builds today is lost.
+WIDTH_TOLERANCE = 0.5
+
 
 def _passes_liquidity(contract: dict, snap: dict, max_spread_override: float | None = None) -> bool:
     """Per-contract liquidity gate (2026-08-26 research pass) — equity-level
@@ -205,6 +220,10 @@ async def build_spread(
     used as the IV proxy for delta. Returns None (never a half-built spread)
     if the chain doesn't have a clean, liquid expiration/strike pair in the
     configured windows — a skipped cycle is always safer than a guessed one.
+
+    Expirations inside the DTE window are tried nearest-first (most theta
+    decay realized within the judged period): the first one that builds an
+    on-width plan wins, an off-width plan is kept only as a last resort.
     """
     limits = config.risk
     today = datetime.now().date()
@@ -219,11 +238,51 @@ async def build_spread(
         logger.info("No %s contracts for %s in [%s, %s]", option_type, ticker, min_exp, max_exp)
         return None
 
-    # Prefer the nearest expiration inside the window (more theta decay
-    # realized within the judged period).
-    contracts.sort(key=lambda c: c.get("expiration_date", ""))
-    chosen_expiration = contracts[0]["expiration_date"]
-    exp_contracts = [c for c in contracts if c.get("expiration_date") == chosen_expiration]
+    expirations = sorted({c["expiration_date"] for c in contracts if c.get("expiration_date")})
+    off_width_plan: SpreadPlan | None = None
+    for chosen_expiration in expirations[:MAX_EXPIRATION_ATTEMPTS]:
+        exp_contracts = [c for c in contracts if c.get("expiration_date") == chosen_expiration]
+        plan = await _build_for_expiration(
+            mcp, ticker, chosen_expiration, exp_contracts,
+            is_bull_put, option_type, spot_price, realized_vol, today,
+        )
+        if plan is None:
+            continue
+        width_ratio = abs(plan.short_strike - plan.long_strike) / limits.spread_width_dollars
+        if abs(width_ratio - 1.0) <= WIDTH_TOLERANCE:
+            return plan
+        logger.info(
+            "%s %s builds only at %.0f%% of the $%.0f target width",
+            ticker, chosen_expiration, width_ratio * 100, limits.spread_width_dollars,
+        )
+        if off_width_plan is None:
+            off_width_plan = plan
+    if off_width_plan is not None:
+        logger.info(
+            "%s: no expiration in the window builds on-width — keeping off-width "
+            "%s/%s @ %s as last resort",
+            ticker, off_width_plan.short_strike, off_width_plan.long_strike,
+            off_width_plan.expiration,
+        )
+    return off_width_plan
+
+
+async def _build_for_expiration(
+    mcp: AlpacaMCP,
+    ticker: str,
+    chosen_expiration: str,
+    exp_contracts: list[dict],
+    is_bull_put: bool,
+    option_type: str,
+    spot_price: float,
+    realized_vol: float,
+    today: date,
+) -> SpreadPlan | None:
+    """One expiration's worth of the original build: delta-target the short,
+    snap the long, quote the shortlist, walk the liquid shorts. Unchanged
+    semantics — build_spread only decides WHICH expirations get attempted.
+    """
+    limits = config.risk
     dte_days = (datetime.strptime(chosen_expiration, "%Y-%m-%d").date() - today).days
 
     def delta_of(contract: dict) -> float:

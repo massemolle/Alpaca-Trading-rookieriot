@@ -2,6 +2,107 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-10 evening (reviewing trading day 2026-09-10 — breaker day)
+
+**Evidence (analyze-regret first, as charged).** Zero fresh decisions to
+classify: the 13:30Z open stopped out all four stale spreads at once (QQQ
+705/700 −$99, XLK 185/180 −$129, XLK 182.5/177.5 −$99, XLE 67/70 −$47 — all
+opened 09-04/09-08 under pre-fix selection), `stop_streak` hit its max-4
+count on that single exit cycle, and every cycle until the close skipped
+entries. Ablation on the standing books instead: the judge's one live
+position (SPY 775/780 bear call from 09-09) marks ≈ +$24; the shadow rule's
+09-09 cohort netted ≈ −$230 (its stacked XLK bull puts all stopped, its SPY
+bear-call clones took profit +$50–56 — the same trade the judge holds);
+random ≤ rule. LLM ≥ rule ≥ random → per the procedure, the judge is
+healthy. Cumulative regret agrees: 44 dropped candidates would have lost
+−$1,346 total; the 7 dropped winners sum to +$94, and the best single miss
+(+$56, SPY bear call, cycle 142) was refused on book-exposure reasoning
+that reads sound — class (a), not evidence. No pattern; nothing to tune in
+the reasoner tonight.
+
+**Change (theme: nearest expiration THAT BUILDS — executing my own 09-09
+proposal; `spread_builder.py` + tests).** The builder committed to the
+single nearest expiration in the DTE window; if that chain couldn't build,
+the ticker died for the cycle (GLD post-long-leg-fix: only width-1 409/410-
+style geometry, ~$10–20 credit vs ~$85 max loss, because the 09-21 chain
+tops out at 420 — the proper spread lives one expiration up). Now
+`build_spread` walks expirations nearest-first (cap 3 attempts, one
+snapshot batch each — extra calls happen only where the ticker previously
+died): the first plan whose width is within ±50% of `spread_width_dollars`
+wins, so healthy SPY/QQQ/XLK behavior is byte-identical (nearest expiration
+still preferred for theta); an off-width plan is kept only as a last resort
+when nothing in the window builds on-width — a strict superset of current
+capability, no ticker that builds today is lost. Per-expiration logic is
+factored into `_build_for_expiration` unchanged. New
+`tests/test_spread_builder_expiration_fallback.py` (5 tests): chain-top
+width-1 defers to the next expiration, unbuildable-nearest falls through,
+on-width nearest wins immediately, all-off-width returns the nearest as
+last resort, attempts capped at 3. Existing OTM/pagination/long-leg tests
+desk-checked — all single-expiration, chosen strikes unchanged.
+
+**Watch tomorrow.** (1) `stop_streak` ages out ~13:30Z (the four stops
+leave the 24h window right at the 09-11 open) — entries should unlock in
+the first or second cycle; if still halted mid-morning, read the
+protections window bounds before assuming new stops. (2) GLD should now
+reach the menu with on-width geometry from the further expiration, or die
+honestly at liquidity — the funnel journal names the stage, and the new
+"builds only at N% of target width" log lines say when fallback fired.
+(3) If bot.log shows a ticker burning all 3 expiration attempts every
+cycle, that's a universe-review candidate, not a retry problem.
+
+**Proposals (not touched — protections may not be loosened by me).**
+`stop_streak` counted four stops from ONE 13:30Z exit cycle as four
+independent events and halted a quiet, premium-rich day (the shadow book's
+SPY bear calls printed +$50–56 while we sat out) over positions the current
+judge provably wouldn't re-open (its eight 09-09 abstentions refused
+exactly these re-adds). If the breaker is meant to stop *decision streaks*,
+counting distinct exit cycles instead of positions would preserve that
+guarantee without double-charging one gap open — that is a loosening, so
+it's the team's call, written here for review. Still open from prior
+nights: TLT per-underlying width (lab experiment), L3b ADX-gate
+adjudication via a team-run `python backtest_lab.py` on real bars.
+
+## 2026-09-09 evening (reviewing trading day 2026-09-09 — restored 2026-09-10)
+
+*This entry was lost with the gate's false-positive revert (128/129 passed;
+the one failure was the env-coupled blackout-date test, since fixed). The
+team re-landed the code and tests on 09-10 (commits 18c9270, 5322cd1) but
+the diary entry went missing — restored here from the saved session review.*
+
+**The day in three sentences.** The 09-08 pagination fix is confirmed
+working (SPY candidates normalized to real 755/775 strikes with $78–96
+credits, `page_token` followed cleanly, no fallback warnings), and the
+judge had its best day yet: eight consistent abstentions citing book
+exposure, one clean fresh open (SPY 775/780 bear call), ≈ −$67 attributable
+on the day versus the shadow rule's ~20 stacked clones at ≈ −$408 — and the
+XLK re-adds it refused finished −$26.5 and −$100.5, so the stacking
+flip-flop pattern is dead by the 2-day evidence bar. But the un-truncated
+chains exposed a second pipeline layer: GLD died every cycle with
+"non-positive credit (0.00)" because its 09-21 chain tops out at 420 while
+the delta target sits near 431, so the long-leg snap landed on the short
+strike itself — a same-strike non-spread — while TLT/XLF died because only
+the single delta-best short was ever tried and one junk long-leg quote lost
+the whole ticker.
+
+**Changes made.** `spread_builder.py`: the long-leg snap now only considers
+strikes strictly further OTM than the short (same-strike and
+structure-inverting snaps impossible by construction; chain-edge shorts are
+excluded from the shortlist before quoting), and selection walks the liquid
+shorts in delta order taking the first with a tradeable long leg — zero
+extra API calls. All data-quality guards and liquidity thresholds
+unchanged. `tests/test_spread_builder_long_leg.py` (5 tests) pins the GLD
+chain-top shape, its bull-put mirror, the TLT/XLF fall-through, and both
+no-plan exhaustion paths.
+
+**Open risks.** (1) GLD's rescued candidates will be narrow (~419/420,
+~$10–20 credit vs ~$85 max loss) because the nearest expiration forces
+width-1 — the real fix is expiration fallback ("nearest expiration *that
+builds*"), proposed for the next session. (2) TLT is likely structurally
+untradeable at $5 width on an $82/10%-vol underlying — proposed as a lab
+experiment on per-underlying width, not patched. (3) QQQ's low_profit lock
+ages out ~15:30Z on 09-10; the 5-position live book (2 XLK at $837.5
+combined max loss, SPY, XLE, QQQ exp 09-14) stays under normal management.
+
 ## 2026-09-08 evening (reviewing trading day 2026-09-08 — first live day on Roadmap v2 W1 code)
 
 **Evidence (analyze-regret first, as charged).** Ablation, today only: LLM
