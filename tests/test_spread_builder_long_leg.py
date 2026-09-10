@@ -65,8 +65,8 @@ async def test_junk_long_leg_falls_through_to_next_short():
     contracts, snaps = _chain("TSTE", "call", {
         105.0: (1.20, 1.30),
         110.0: None,          # junk quote -> kills 105's long AND 110 as short
-        115.0: (0.30, 0.36),
-        120.0: (0.10, 0.14),
+        115.0: (0.32, 0.34),   # 6% spread — passes the 12% short gate
+        120.0: (0.12, 0.13),   # 8% — passes the 25% long-leg gate
     })
     plan = await build_spread(ChainMCP(contracts, snaps), "TSTE", "short",
                               spot_price=100.0, realized_vol=0.30)
