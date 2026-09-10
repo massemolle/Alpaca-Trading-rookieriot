@@ -239,20 +239,26 @@ async def build_spread(
 
     same_exp_by_strike = {float(c["strike_price"]): c for c in exp_contracts}
 
-    def snap_long_strike(short_strike: float) -> float:
+    def snap_long_strike(short_strike: float) -> float | None:
         # Long leg: `spread_width_dollars` further out-of-the-money than the
-        # short strike — lower strike for a put spread (further OTM = lower),
-        # higher strike for a call spread (further OTM = higher). Snapped to
-        # the closest available strike rather than failing outright —
-        # standard option chains aren't guaranteed to have every $5 increment.
+        # short strike, snapped to the closest available strike — but ONLY
+        # among strikes strictly further OTM than the short. The previous
+        # closest-anywhere snap could land on the short strike itself at the
+        # chain edge (GLD 2026-09-09: chain topped out at the short → same-
+        # strike "spread", credit 0.00 every cycle) or even invert the
+        # structure. No further-OTM strike = this short has no spread here.
         target = (
             short_strike - limits.spread_width_dollars
             if is_bull_put
             else short_strike + limits.spread_width_dollars
         )
-        if target not in same_exp_by_strike:
-            target = min(same_exp_by_strike, key=lambda k: abs(k - target))
-        return target
+        further = [
+            k for k in same_exp_by_strike
+            if (k < short_strike if is_bull_put else k > short_strike)
+        ]
+        if not further:
+            return None
+        return min(further, key=lambda k: abs(k - target))
 
     # Delta is computed in-process (no quotes needed), so shortlist strikes
     # BEFORE fetching snapshots: with the chain now paginated in full, a
@@ -265,7 +271,12 @@ async def build_spread(
         ((c, delta_of(c)) for c in exp_contracts if is_otm(c)),
         key=lambda cd: abs(cd[1] - limits.short_leg_target_delta),
     )
-    shortlist = otm_by_delta[:SHORT_CANDIDATE_COUNT]
+    # Chain-edge shorts (no strictly-further-OTM long available) are excluded
+    # from the shortlist before quoting — they can never form a spread.
+    shortlist = [
+        (c, d) for c, d in otm_by_delta
+        if snap_long_strike(float(c["strike_price"])) is not None
+    ][:SHORT_CANDIDATE_COUNT]
     snapshot_symbols: list[str] = []
     for c, _ in shortlist:
         long_c = same_exp_by_strike[snap_long_strike(float(c["strike_price"]))]
@@ -296,23 +307,41 @@ async def build_spread(
         return None
 
     liquid_candidates.sort(key=lambda cd: abs(cd[1] - limits.short_leg_target_delta))
-    short_contract, _ = liquid_candidates[0]
+
+    # Walk the liquid shorts in delta order and take the FIRST whose long leg
+    # is actually tradeable. Previously only liquid_candidates[0] was tried,
+    # so one junk long-leg quote lost the entire ticker for the cycle
+    # (TLT/XLF, every cycle of 2026-09-09). Zero extra API calls: every
+    # candidate's long is already in the snapshot batch.
+    short_contract = long_contract = None
+    short_mid = long_mid = None
+    for cand, _d in liquid_candidates:
+        cand_strike = float(cand["strike_price"])
+        cand_long_strike = snap_long_strike(cand_strike)
+        if cand_long_strike is None:
+            continue
+        cand_long = same_exp_by_strike[cand_long_strike]
+        cand_long_snap = snap_by_symbol.get(cand_long["symbol"], {})
+        if not _passes_liquidity(cand_long, cand_long_snap, max_spread_override=LONG_LEG_MAX_SPREAD_PCT):
+            logger.info("%s long leg (%s) fails the liquidity gate, trying next short",
+                        ticker, cand_long["symbol"])
+            continue
+        s_mid = _mid_from_snapshot(snap_by_symbol.get(cand["symbol"], {}))
+        l_mid = _mid_from_snapshot(cand_long_snap)
+        if s_mid is None or l_mid is None:
+            logger.info("Missing quotes for %s %s/%s, trying next short",
+                        ticker, cand["symbol"], cand_long["symbol"])
+            continue
+        short_contract, long_contract = cand, cand_long
+        short_mid, long_mid = s_mid, l_mid
+        break
+
+    if short_contract is None:
+        logger.info("%s: no liquid short with a tradeable long leg this cycle, skipping", ticker)
+        return None
+
     short_strike = float(short_contract["strike_price"])
-
-    target_long_strike = snap_long_strike(short_strike)
-    long_contract = same_exp_by_strike[target_long_strike]
-
-    long_snap = snap_by_symbol.get(long_contract["symbol"], {})
-    if not _passes_liquidity(long_contract, long_snap, max_spread_override=LONG_LEG_MAX_SPREAD_PCT):
-        logger.info("%s long leg (%s) fails the liquidity gate, skipping", ticker, long_contract["symbol"])
-        return None
-
-    short_snap = snap_by_symbol.get(short_contract["symbol"], {})
-    short_mid = _mid_from_snapshot(short_snap)
-    long_mid = _mid_from_snapshot(long_snap)
-    if short_mid is None or long_mid is None:
-        logger.warning("Missing quotes for %s spread legs, skipping", ticker)
-        return None
+    target_long_strike = float(long_contract["strike_price"])
 
     credit_estimate = round((short_mid - long_mid) * 100, 2)  # per 1 contract, $ not cents
     width_dollars = abs(short_strike - target_long_strike) * 100

@@ -189,19 +189,20 @@ def test_limit_credit_price_applies_slippage():
 
 
 def test_macro_blackout_windows(monkeypatch):
+    # Pin the windows via env: the LIVE calendar is env-tunable and rotates
+    # monthly, and the nightly gate runs pytest with .env sourced — this test
+    # must assert the window LOGIC, never whatever dates production currently
+    # uses (a stale date assertion falsely REVERTED the 2026-09-09 engineer
+    # session).
     from datetime import datetime, timezone
     import risk_gate
 
-    inside = datetime(2026, 9, 4, 12, 30, tzinfo=timezone.utc)   # NFP release
-    outside = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
-    hit, reason = risk_gate.in_macro_blackout(inside)
-    assert hit and "blackout" in reason
-    hit, _ = risk_gate.in_macro_blackout(outside)
-    assert not hit
-    # env override + malformed entries are skipped, not fatal
     monkeypatch.setenv("MACRO_BLACKOUTS", "garbage,2026-09-02T10:00/2026-09-02T11:00")
-    hit, _ = risk_gate.in_macro_blackout(datetime(2026, 9, 2, 10, 30, tzinfo=timezone.utc))
-    assert hit
+    hit, reason = risk_gate.in_macro_blackout(datetime(2026, 9, 2, 10, 30, tzinfo=timezone.utc))
+    assert hit and "blackout" in reason      # inside fires
+    hit, _ = risk_gate.in_macro_blackout(datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc))
+    assert not hit                            # outside doesn't
+    # malformed entry ("garbage") was skipped, not fatal — proven by the hit above
 
 
 def test_reconcile_allows_two_spreads_stacking_the_same_symbols(monkeypatch):
