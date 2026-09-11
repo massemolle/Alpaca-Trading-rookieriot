@@ -2,6 +2,85 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-11 evening (reviewing trading day 2026-09-11 — first full post-breaker day)
+
+**Evidence (analyze-regret first, as charged).** Entries unlocked on schedule
+(stop_streak aged out; first open cycle 175 at 14:00Z — 09-10 watch item 1
+confirmed) and the 09-10 expiration-fallback fix is confirmed live: GLD built
+on-width $5 spreads all day and reached the menu every cycle (watch item 2).
+Ablation, today's opens at marks: LLM book 4 opens ≈ −$97 (QQQ −17, XLK −63
+realized, XLE −14, GLD −3) > random ≈ −$128 (4 opens) > shadow rule ≈ −$300
+(~23 stacked opens) — LLM ≥ random ≥ rule, judge healthy. Regret: 2 dropped
+winners (+$2 QQQ c177, +$13 GLD c176, both class (a): weak-signal +
+already-held reasoning reads sound) vs 6 dropped losers −$99.5 avoided. No
+selection pattern. The day's real loss driver is class (c), but *downstream*
+of the menu — entry execution:
+
+**The tolerance stack re-anchors fills 28% below the judged economics, and
+the stop then guarantees the loss.** Mechanism, verified against today's
+fills: (1) the menu credit is the builder's net MID (judge reasoned on GLD
+$68, XLK $53); (2) `pretrade_gate` re-quotes and REPLACES
+`plan.credit_estimate` with the fresh mid, tolerating 20% shrink; (3) the
+marketable limit floored at `fresh × (1 − 10%)` — floor-of-floors = 0.72 ×
+judged. Both wide-quoted names filled EXACTLY there (GLD $51 = 68×.75, XLK
+$39 ≈ 53×.74 — a limit can't fill below its floor, so these were floor
+fills). (4) The stop is `2 × fill` while the mark is the crossing
+(short_ask − long_bid): XLK was born with its crossing cost ≈ 82% of its own
+stop and stopped 90 min later at exactly 2.0× (−$39, cost 78 ≈ BS-fair for
+the spread) **on a day XLK rose +1.31%** — the loss was the quote width,
+realized deterministically, and it then fed the low_profit lock (XLK −$327/7d
+→ symbol locked cycles 185+, compounding the damage into tomorrow.)
+
+**Changes (one theme: the executed trade must be the judged trade).**
+1. `bot.py`: new `_entry_limit_credit(judged, fresh)` — the limit floor now
+   anchors to `max(judged, fresh)` credit, so the entry fills within the
+   single documented `max_entry_slippage_pct` (10%) of what the LLM approved,
+   or rests unfilled and dies through the existing pending→rejected path
+   (reconciler tolerates pending rows; unfilled day orders expire → marked
+   rejected next cycle — no new machinery). The gate's 20% shrink check still
+   rejects moved markets; it just no longer drags the executable floor down.
+   Pure tightening: today GLD would have floored at $61 (not $51) and XLK at
+   $48 (not $39) — both likely honest no-fills instead of donations.
+2. `bot.py` pending-resolution path: it read the REST order's top-level
+   `filled_avg_price` naively — the field CLAUDE.md pins as NEGATIVE for
+   credit opens. A pending-resolved fill would have recorded a negative
+   credit_received, flipping should_close into an instant bogus
+   "profit target" close. Now reuses `executor_mcp._extract_filled_avg_price`
+   (per-leg preferred, top-level negated — the 08-30-pinned extractor). This
+   path becomes load-bearing under (1), so it's the same theme, not scope
+   creep.
+3. `tests/test_entry_fill_economics.py` (5 tests): anchor identity when
+   fresh is lower, regression pin that today's two floor-fills are refused,
+   fresh-improves-takes-higher, and both REST fill shapes (top-level
+   negation, per-leg net) through the real manage_open_spreads pending
+   branch.
+
+**Watch tomorrow.** (1) GLD spread id 31 is the fix's motivating live case
+still on the books: fill $51, stop at $102, crossing mark ≈ $71 at entry —
+if it stops on quote noise rather than a real GLD move, that's the exit-side
+half of this defect firing (see proposal below). (2) Look for "Pending #N
+rejected (expired)" notes / pending rows in the journal — that's the
+anchored limit correctly refusing degraded fills; frequent pendings on
+SPY/QQQ (tight books) would instead mean the anchor is too aggressive
+somewhere I didn't foresee. (3) Cycles 180–181 journaled "Market is closed"
+at 16:31Z/17:01Z on a Thursday — get_clock failed twice and fail-safed to
+closed (by design), but exits also skipped for that hour; if it recurs,
+it's an availability pattern, not a one-off.
+
+**Proposals (not touched).** (a) Exit-side twin of tonight's fix: the stop
+mark is the indicative-feed crossing (short_ask − long_bid) with no quality
+check — the menu-book XLK stopped at mark 116 vs ≈70 BS-fair on a green day,
+so one wide/junk quote cycle can book a permanent realized loss. A mark
+sanity bound or two-cycle stop confirmation would fix it but is a stop
+LOOSENING — team call, written here for review. (b) get_clock: one retry
+before fail-safing to closed would have saved an hour of exit management
+today (bot.py:520). (c) Ablation bias now visible: shadow/random books
+"fill" at the mid estimate with zero slippage while the real book pays real
+fills — after tonight's change the real book's fills are within 10% of mid,
+but book-vs-book P&L comparisons still flatter the virtual books by the
+slippage the shadow never pays. Still open: TLT per-underlying width lab,
+L3b ADX-gate adjudication via team-run `python backtest_lab.py`.
+
 ## 2026-09-10 evening (reviewing trading day 2026-09-10 — breaker day)
 
 **Evidence (analyze-regret first, as charged).** Zero fresh decisions to

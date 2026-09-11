@@ -198,6 +198,25 @@ def _apply_trend_and_volatility_filters(
     return kept, rejections
 
 
+def _entry_limit_credit(judged_credit: float, fresh_credit: float) -> float:
+    """Marketable-limit floor anchored to the credit the LLM selected on.
+
+    The pre-trade gate re-anchors plan.credit_estimate to the fresh mid,
+    tolerating up to CREDIT_SHRINK_MAX (20%) of decay; flooring the limit
+    off that re-anchored number compounds with max_entry_slippage_pct into
+    fills up to 28% below the judged economics. 2026-09-11, both wide-quoted
+    fills landed exactly at that compounded floor (GLD judged $68 → filled
+    $51, XLK judged $53 → filled $39), and XLK's stop — 2x of the *fill* —
+    then sat below the spread's own crossing cost at entry: it stopped out
+    90 minutes later on a day XLK rose +1.31%, realizing the quote width.
+    Anchoring on max(judged, fresh) keeps the whole entry inside the single
+    documented slippage budget: the order fills within
+    max_entry_slippage_pct of what the judge approved, or rests unfilled
+    and dies through the existing pending → rejected path.
+    """
+    return executor_mcp.limit_credit_price(max(judged_credit, fresh_credit))
+
+
 async def manage_open_spreads(
     mcp: AlpacaMCP,
     client: AlpacaClient,
@@ -221,9 +240,18 @@ async def manage_open_spreads(
                     order = client.get_order(str(order_ids[0]))
                     ost = str(order.get("status") or "").lower()
                     if ost in executor_mcp.FILLED_STATUSES:
-                        fill_px = order.get("filled_avg_price")
+                        # Same sign gotcha the executor fixed 2026-08-30: a
+                        # REST order's top-level filled_avg_price is "cost to
+                        # acquire" — NEGATIVE for a credit open. The naive
+                        # float() read here recorded a pending-resolved credit
+                        # as negative, which flips should_close into an
+                        # instant bogus "profit target" exit. Reuse the
+                        # executor's pinned extractor (per-leg preferred,
+                        # top-level negated) instead.
+                        fill_per_share = executor_mcp._extract_filled_avg_price(order)
                         fill_credit = (
-                            round(float(fill_px) * 100, 2) if fill_px is not None else None
+                            round(fill_per_share * 100, 2)
+                            if fill_per_share is not None else None
                         )
                         db.update_spread_status(
                             spread["id"], "open", fill_credit=fill_credit,
@@ -653,9 +681,10 @@ async def run_cycle() -> None:
                             {"ticker": c["ticker"], "reasons": gate.reasons, "facts": gate.facts}
                         )
                         continue
+                    judged_credit = plan.credit_estimate
                     plan = gate.plan
                     contracts = gate.contracts
-                    limit_credit = executor_mcp.limit_credit_price(plan.credit_estimate)
+                    limit_credit = _entry_limit_credit(judged_credit, plan.credit_estimate)
                     result = await executor_mcp.open_spread(
                         mcp, plan, contracts=contracts,
                         client=client, limit_credit=limit_credit,
