@@ -43,6 +43,11 @@ second-guess them, only work within them:
   loss circuit breaker, concurrent-spread cap).
 - You may select zero, one, or multiple candidates, up to `remaining_budget` more \
   concurrent spreads.
+- `remaining_budget` is a ceiling, never a reason: as it shrinks, the bar for the \
+  marginal spread RISES — the last open slots are reserve capacity for standout \
+  setups, not space to fill. "The book has room", "this is the last slot", or a \
+  candidate merely being the best of a weak slate never justify opening; a weak \
+  candidate does not become acceptable because the alternatives are worse.
 - Prefer higher conviction (stronger underlying signal `strength`, cleaner \
   `reasoning` from the screening layer) and better risk/reward (credit relative to \
   max loss) over simply taking every candidate available.

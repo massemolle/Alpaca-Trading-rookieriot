@@ -2,6 +2,72 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-14 evening (reviewing trading day 2026-09-14 — six-open Monday, book at cap)
+
+**Evidence (analyze-regret first, as charged).** Both 09-11 watch items came
+back clean: the anchored entry limit is confirmed live — all six of today's
+fills landed within the 10% budget of the judged credit (GLD $124 vs $134
+mid, QQQ $100 vs $110 — exactly the 90% floor — and $91 vs $96.5, SPY $100
+vs $103.95; both TLT fills came in *better* than the judged mid), zero
+floor-of-floors donations, and GLD id 31 held all day without a noise stop.
+Ablation: LLM ≥ rule, decisively and causally — the shadow rule's six
+stacked QQQ 70x bull-put clones from 09-11 all stopped on this morning's
+−1.61% QQQ gap (≈ −$761 realized) while the judge's single QQQ position took
+−$130 and its SPY bear call banked +$49; shadow's day netted ≈ −$320 vs the
+real book's −$81 realized / +$13.6 account P&L. Regret: one dropped winner
+(SPY 749/744, +$13 open mark) — noise, class (a). The judge's drops stay
+sound. The pattern is on the *taken* side:
+
+**Budget slots are being spent as if unused capacity were a cost.** The
+judge opened in 6 of 7 candidate cycles (book 2 → 8, the operator's cap, in
+one session) and never abstained; shadow agreement was 6/6. The tell is
+cycle 197: SPY refused at strength 0.165 ("simply too weak to open on
+conviction", c195) and 0.034 ("essentially noise", c196) was then OPENED at
+0.052 — justified as "with the last budget slot the clean-book, best-payout
+candidate is the disciplined pick." Same class as 09-08 cycle 135 (third
+XLK add filling budget) and the 09-02 stack ("holding back a slot" while
+padding): `remaining_budget` cited as a reason FOR the marginal trade.
+Class (b) across ≥3 decisions and ≥2 days — the prompt teaches nothing
+about how budget should bear on selectivity, so slot pressure LOWERS the
+bar exactly when it should raise it. (D21 wants activity, but it raised the
+cap so signals could flow, not to make 8 a target.)
+
+**Change (one theme: the last slot is reserve, not space to fill; via
+tune-reasoner-prompt).** One new SYSTEM_PROMPT bullet in `llm_reasoner.py`:
+`remaining_budget` is a ceiling, never a reason — as it shrinks the bar for
+the marginal spread rises; "the book has room" / "last slot" / best-of-a-
+weak-slate never justify opening. JSON contract, citation rule, book-facts
+bullet, and abstain-on-failure all verbatim-untouched (pinned by new
+`tests/test_reasoner_budget_guidance.py`, 5 tests). Cache safety
+desk-checked: `reasoner_cache.menu_hash` is same-UTC-day scoped, so no
+pre-change decision can be reused tomorrow.
+
+**Falsifiable prediction.** Journaled reasoning stops citing slot
+availability/room as a pro-open argument (grep the journal), and abstention
+returns on weak slates — LLM/shadow agreement drops below today's 6/6.
+Caveat: the book sits at the 8-cap, so entries only resume as positions
+close; give this 1–2 trading days of data before verdicting. If the judge
+again opens a sub-0.1-strength candidate citing the budget, the prompt
+lever failed → next escalation is a menu-level change (e.g. a minimum
+mechanical-score floor), lab-tested first.
+
+**Watch tomorrow.** (1) At-cap behavior: cycles with zero remaining budget
+should journal that state honestly, exits fully active — eight positions
+(2 QQQ bear calls, 2 TLT bear calls, 2 GLD bear calls, XLE, SPY) all get
+managed. (2) QQQ ids 34/36 are the exposed pair if tech bounces: ~$802
+combined max loss, both born on a down day. (3) Fill-vs-judged spot check
+once more — today QQQ filled exactly at the 90% floor once; frequent
+exact-floor fills on tight books would mean the anchor is the binding price,
+not the market.
+
+**Proposals (not touched).** (a) `reasoner_cache.menu_hash` should fold in
+a hash of SYSTEM_PROMPT: today the same-day scope hides it, but any future
+*intraday* prompt hotfix would silently reuse pre-fix decisions until
+midnight UTC. One line, but it's cache plumbing shared with the team's v2
+machinery — their call. (b) Still open from prior nights: exit-side mark
+quality (09-11a), get_clock retry (09-11b), TLT per-underlying width lab,
+L3b ADX-gate adjudication via team-run `python backtest_lab.py`.
+
 ## 2026-09-11 evening (reviewing trading day 2026-09-11 — first full post-breaker day)
 
 **Evidence (analyze-regret first, as charged).** Entries unlocked on schedule
