@@ -516,14 +516,21 @@ def _skip_reasoning(
     prot: protections.ProtectionResult,
     close_window: bool,
     close_window_reason: str | None,
+    remaining_budget: int,
+    open_spread_count: int,
 ) -> str:
     """Journaled reason when a cycle screens no candidates.
 
     Precedence: account misconfiguration first (operator alarm), then the
-    closed market, then the entry suppressions in gate order. The closed
-    market must outrank the suppressions: on 2026-09-07 (holiday) every
-    morning cycle journaled the contest-window message, implying entries
-    were being suppressed on a day when nothing could trade at all.
+    closed market, then the entry suppressions in gate order, then the
+    concurrent-spread cap. The closed market must outrank the suppressions:
+    on 2026-09-07 (holiday) every morning cycle journaled the contest-window
+    message, implying entries were being suppressed on a day when nothing
+    could trade at all. The cap sits last among the suppressions: the other
+    conditions are time-bounded external events worth surfacing even on a
+    full book, whereas at-cap is the book's normal state. On 2026-09-15
+    (book at cap all day) every cycle fell through to "No eligible
+    candidates" although screening never ran.
     """
     if not options_level_ok:
         return f"Options trading level is {options_level!r}, need >=3 for spreads — not screening this cycle."
@@ -537,6 +544,12 @@ def _skip_reasoning(
         return (
             f"No new positions: {close_window_reason} — any spread opened now "
             f"would be force-closed on the next cycle. Exits stay active."
+        )
+    if remaining_budget <= 0:
+        return (
+            f"No new positions — book at the concurrent-spread cap "
+            f"({open_spread_count} open, 0 remaining budget); not screening. "
+            f"Exits stay active."
         )
     return "No eligible candidates this cycle."
 
@@ -617,6 +630,8 @@ async def run_cycle() -> None:
             prot=prot,
             close_window=close_window,
             close_window_reason=close_window_reason,
+            remaining_budget=remaining_budget,
+            open_spread_count=len(open_spreads),
         )
         gate_rejections: list[dict] = []
         pre_trade_rejections: list[dict] = []

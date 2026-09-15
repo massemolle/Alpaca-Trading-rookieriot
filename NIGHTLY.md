@@ -2,6 +2,68 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-15 evening (reviewing trading day 2026-09-15 — full day at the 8-cap, zero decisions)
+
+**Evidence (analyze-regret first, as charged).** Thin by construction: the
+book sat at the operator's 8-position cap from open to close, so all 12
+market-hours cycles screened nothing — zero candidates, zero menu rows, zero
+selections in any book. No new regret classifications are possible and last
+night's falsifiable prediction (budget bullet ends slot-citing) got **no
+test** — exactly the caveat written 09-14; it stays open, verdict in 1–2
+days as positions close. Ablation on standing books still says judge
+healthy: the shadow rule realized ≈ **−$588** today (its six stale SPY
+~756-strike bull-put clones from 09-11 all stopped 14:30–15:30Z on a quiet
+−0.44% SPY day), random realized −$207.5 (two SPY stops), the real book
+realized $0 with ≈ −$98 open-mark drift. LLM ≥ random ≥ rule — third
+consecutive reading, and the control arm keeps paying for the stacking the
+judge refused.
+
+**The one defect today's data does establish: at-cap cycles journal a
+falsehood.** Watch item (1) from 09-14 asked whether zero-budget cycles
+journal that state honestly. They don't: every cycle today said "No
+eligible candidates this cycle" with empty gate_rejections — implying an
+empty funnel, when in truth `run_cycle`'s gating `if` short-circuits on
+`remaining_budget > 0` and screening never ran. `_skip_reasoning` had
+branches for options level, closed market, blackout, protections, and the
+contest window, but none for the very first condition in the gate. Same
+misattribution class as the 09-07 holiday fix, and it cost analysis effort
+tonight for the second time.
+
+**Change (one small theme: the journal must name the operative reason;
+display only).** `bot.py::_skip_reasoning` takes `remaining_budget` /
+`open_spread_count` and journals "No new positions — book at the
+concurrent-spread cap (8 open, 0 remaining budget); not screening. Exits
+stay active." The branch sits LAST among the suppressions: blackout,
+protections, and close-window are time-bounded external events worth
+surfacing even on a full book; at-cap is the book's normal state. The
+trade-gating `if` is byte-identical; no risk limit touched. Four new tests
+in `tests/test_skip_reasoning.py` pin today's exact case, closed-market and
+suppression precedence over the cap, and the cap-lowered-mid-flight shape
+(9 open under an 8-cap).
+
+**Watch tomorrow.** (1) First cycle at cap should journal the new cap
+message; the first cycle after any close should screen again — if entries
+resume, the 09-14 prediction finally gets its test (grep for slot/room
+citations). (2) Pressure points on the full book, in order: XLE 65/70 bear
+call (id 30) — XLE closed 65.94, the short is ITM after today's +2.17%
+move, mark ≈ 151 vs 204 stop; SPY 753/748 bull put (id 37) — short only
+0.58% OTM, mark 168 vs 200 stop, one −0.6% SPY morning stops it; GLD
+399/404 (id 32) — 1.25% OTM with GLD RV 28%. Expect the cap to free up by
+stop or profit-target, not by choice. (3) If a stop cluster fires
+(stop_streak max 4 in 24h), entries halt and the prediction wait extends —
+read protections before blaming the prompt change.
+
+**Proposals (not touched).** Unchanged from prior nights, all still open:
+(a) fold a SYSTEM_PROMPT hash into `reasoner_cache.menu_hash` (intraday
+prompt hotfix safety); (b) exit-side mark quality bound / two-cycle stop
+confirmation (stop loosening — team call); (c) get_clock single retry
+before fail-safe-closed; (d) TLT per-underlying width lab; (e) L3b
+ADX-gate adjudication via team-run `python backtest_lab.py`. New, small:
+the cycles list in `evening_context.json` truncates at 12 rows, which today
+exactly covered 15:00Z→20:30Z and dropped the 13:30/14:00/14:30Z cycles —
+on busier days the evening engineer loses the morning; consider bumping to
+a full session's worth (~14–16).
+
 ## 2026-09-14 evening (reviewing trading day 2026-09-14 — six-open Monday, book at cap)
 
 **Evidence (analyze-regret first, as charged).** Both 09-11 watch items came
