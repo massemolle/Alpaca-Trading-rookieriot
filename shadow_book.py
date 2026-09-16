@@ -161,7 +161,10 @@ def open_menu_book(
     the old virtual position closed. MENU_BOOK_MAX_OPEN caps marking load.
     """
     try:
-        cap = int(os.environ.get("MENU_BOOK_MAX_OPEN", "20"))
+        # Cap sized to the multi-day backlog: episodes stay open for days
+        # (up to 14 DTE), so 20 was reached on 09-14 and 09-16 and silently
+        # dropped the decision-cycle candidates regret exists to track.
+        cap = int(os.environ.get("MENU_BOOK_MAX_OPEN", "40"))
         already = _menu_open_symbol_pairs()
         n_open = len(already)
         for cand in candidates:

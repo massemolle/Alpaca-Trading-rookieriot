@@ -79,10 +79,13 @@ def main() -> None:
     with db._connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         ctx = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "cycles_recent": _q(cur, f"select id, decision, reasoning, error, ran_at from {s}.cycles order by id desc limit 12"),
+            # A full session is 15 half-hour cycles (13:30-20:30Z), and the
+            # cycles table gains an extra row per opened spread on multi-open
+            # cycles; limit 12 dropped the morning on 09-15 and 09-16.
+            "cycles_recent": _q(cur, f"select id, decision, reasoning, error, ran_at from {s}.cycles order by id desc limit 20"),
             "journal_recent": _q(cur, f"""select cycle_id, candidates, llm_selected, llm_reasoning,
                                           shadow_selected, gate_rejections, pre_trade_rejections, created_at
-                                          from {s}.decision_journal order by id desc limit 12"""),
+                                          from {s}.decision_journal order by id desc limit 16"""),
             "spreads_all": _q(cur, f"select * from {s}.spreads order by opened_at desc limit 30"),
             "shadow_positions": _q(cur, f"""select * from {s}.shadow_positions
                                            where policy in ('shadow','random')

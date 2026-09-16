@@ -129,6 +129,22 @@ def test_menu_cap_limits_new_opens(monkeypatch):
     assert len(rec) == 2
 
 
+def test_menu_cap_default_is_40(monkeypatch):
+    # Episodes stay open for days, so the default cap must exceed a realistic
+    # multi-day backlog: at 20 it was reached on 09-14 and 09-16 and silently
+    # dropped every decision-cycle candidate (log-verified).
+    monkeypatch.delenv("MENU_BOOK_MAX_OPEN", raising=False)
+    recorded = []
+    monkeypatch.setattr(shadow_book, "_menu_open_symbol_pairs", lambda: set())
+    monkeypatch.setattr(shadow_book, "_record_open",
+                        lambda *a, **k: recorded.append(a))
+    shadow_book.open_menu_book(
+        cycle_id=7, candidates=_menu_candidates([f"T{i:02d}" for i in range(45)]),
+        llm_selected=[], sizing_fn=_sizing, equity=100_000.0, max_risk_pct=0.02,
+    )
+    assert len(recorded) == 40
+
+
 def test_menu_never_raises(monkeypatch):
     monkeypatch.setattr(shadow_book, "_menu_open_symbol_pairs", lambda: 1 / 0)
     shadow_book.open_menu_book(

@@ -2,6 +2,77 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-16 evening (reviewing trading day 2026-09-16 — FOMC day: five closes, one open, blackout afternoon)
+
+**Verdict on the 09-14 prediction: CONFIRMED, within the readable evidence.**
+Entries resumed this morning (the 13:30Z GLD stop freed the first slot) and
+the prompt change did what it promised. Cycles 225–227 had candidates and
+the judge abstained on all three (shadow opened four positions in that span
+— agreement broke from Monday's 6/6); at cycle 228 it opened exactly one,
+and the journaled reasoning cites the last slot in the bar-RAISING
+direction: "With only 1 slot left the bar is high, and XLE clears it on
+conviction" — strength 0.475, trending ADX 27.9, against a QQQ/SPY/GLD
+slate of 0.06–0.15 ranging noise it refused despite QQQ's better raw R/R.
+No slot/room-as-pro-open citation anywhere readable. Caveat that motivates
+tonight's theme: the 225–227 journals themselves fell outside the context
+window, so the verdict rests on cycle 228 verbatim plus observed behavior.
+
+**Evidence (analyze-regret first, as charged).** Ablation, 4th consecutive
+judge win: the real book realized −$346 today (stale 09-11/09-14 cohort:
+GLD −116, GLD −118, TLT −32, SPY −130, plus QQQ 725/730 +50 profit) with
+account daily P&L only −$117 as open marks improved; the shadow rule
+realized ≈ −$770 (its GLD clone-stack alone −$503) and random ≈ −$739
+(its cycle-228 GLD bull-put pick stopped −$227.5 the same afternoon —
+the exact candidate the judge refused at strength 0.062). LLM ≥ random ≥
+rule. The XLE open marks −$6 on day one; XLE −2.87% today also rescued the
+09-11 XLE 65/70 (id 30) that 09-15 flagged as the top pressure point.
+Regret classification: cycle-228 drops are class (a) — sound, and the GLD
+counterfactual promptly lost. Cycle-225's dropped SPY 772/777 bear call
+closed +$51 — the **4th profitable SPY bear-call drop** (c142 +56 = classed
+(a) on 09-10, c192 +57.5, c193 +48, c225 +51, +$212.5 total) — but c192/
+193/225 are all UNCLASSIFIABLE tonight because their journal rows are
+outside the context window. Not actionable per the procedure; unblocking it
+is the theme.
+
+**The real defect: both evening evidence instruments silently dropped
+today's decisions.** (1) `MENU_BOOK_MAX_OPEN=20` (env unset; code default)
+was reached at cycle 225 — bot.log shows "cap 20 reached" skips for ALL
+decision-cycle candidates of 226/227/228 today and for cycle 196/197
+slates on 09-14: the regret ledger has no row for today's taken XLE, none
+for the refused QQQ/SPY/GLD, and none for Monday's cycle-197 SPY bull put
+(the judge's one bad open that day). Episodes live up to 14 DTE, so a
+20-row cap is below the steady-state backlog and the skip loses exactly
+the newest — the rows regret exists to measure. (2) `evening_context.py`
+truncated cycles/journal at 12 rows, which for the second night running
+cut the morning (225–227) out of the evidence file — the 09-15 proposal,
+now twice-costed.
+
+**Changes (one theme: the evidence instruments must carry a full session;
+no trading path touched).** `shadow_book.py` menu cap default 20 → 40
+(marking load bounded at 40 snapshot calls/cycle worst case; env override
+unchanged), pinned by new `test_menu_cap_default_is_40`. `evening_context.py`
+`cycles_recent` 12 → 20 (cycles gain a row per opened spread on multi-open
+cycles — the 09-04 quirk), `journal_recent` 12 → 16 (a session is 15
+half-hour cycles). Both files are read-only analysis infrastructure; risk
+limits, gates, and bot.py byte-identical.
+
+**Watch tomorrow.** (1) bot.log should show zero "menu book: cap" lines;
+if 40 also binds, the next step is menu-episode hygiene (censor-close stale
+rows), not another bump. (2) Tomorrow's context carries 16 journal rows —
+FIRST TASK: pull cycles 192/193/225 reasoning if still within window (else
+the next SPY bear-call drop) and classify the 4-drop pattern properly;
+if it's class (b), the likely misweight is ranging-regime strength on SPY
+bear calls. (3) XLE concentration: two live 65/70 bear calls (09-25,
+09-30) — today's −2.87% made both comfortable; an energy bounce re-tests
+~$818 combined max loss on one name.
+
+**Proposals (not touched).** All prior still open: (a) SYSTEM_PROMPT hash
+in `reasoner_cache.menu_hash`; (b) exit-side mark quality bound (loosening
+— team call); (c) get_clock retry; (d) TLT per-underlying width lab; (e)
+L3b ADX-gate adjudication via team-run `python backtest_lab.py`; (f)
+per-spread `record_cycle` duplication (09-04) — tonight's cycles_recent
+sizing had to work around it, which is one more reason to fix it.
+
 ## 2026-09-15 evening (reviewing trading day 2026-09-15 — full day at the 8-cap, zero decisions)
 
 **Evidence (analyze-regret first, as charged).** Thin by construction: the
