@@ -2,6 +2,117 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-17 evening (reviewing trading day 2026-09-17 — risk-on rally, book refilled 3→8, back at cap by 18:00Z)
+
+**Verdicts on 09-16 watch items.** (1) Menu instrument: healthy — zero
+"menu book: cap" lines in bot.log all day (the 20→40 bump holds), and the
+sparse-looking regret rows are the by-design dedup on open (short,long)
+symbol pairs (e.g. cycles 246–250's QQQ 705/700 candidate was already an
+open menu episode from c244), not data loss. (2) SPY bear-call drop
+classification: DEAD END by construction — cycles 192/193/225 rolled out
+of the DB context permanently before the wider window existed; the pattern
+(4 closed profitable drops, +$212.5) stays unclassifiable per procedure.
+A 5th instance is now LIVE: c242 dropped a SPY 775/780 bear call (+$3 open
+mark); when it resolves, classify it same-night from its journal — that
+row IS within the window. (3) XLE: no bounce; id 30 took profit +$58, but
+the judge re-added at c244, so the book again carries two XLE 65/70 bear
+calls (~$863 combined max loss). Watch item stands.
+
+**Evidence (analyze-regret first, as charged).** Ablation, 5th consecutive
+judge-healthy reading: the judge opened 5 of 10 decision slates (GLD c242,
+SPY c243, XLE c244, QQQ c246, XLK c251) and abstained 5 — every abstention
+citing stacked exposure or thin credit, exactly the 09-14 prompt change's
+intent (slot-as-bar-raising language throughout, e.g. c250 "the raised bar
+for the single remaining reserve slot"). The shadow rule opened ELEVEN,
+including the SAME QQQ 705/700 09-28 bull put six times (c244–c250) — the
+un-book-aware control stacking again; its clone-stack marks −$11…−$21.5
+each. Realized today: real book +$58 (XLE id 30 profit target), shadow
++$28 (+61, +53 XLE profit-targets minus −86 TLT c193 stop), random +$53.
+On marks the arms are within noise; on structure the judge holds 5
+diversified names vs the rule's 6-deep single-strike stack. Regret: c243's
+dropped QQQ (+$16.5 mark) and TLT (+$17.5 mark) both class (a) — cited
+reasoning (QQQ already held, TLT strength 0.112 "essentially noise") reads
+sound. No selection pattern. The day's real finding is class (c), and it
+is not in the menu — it is in the ORDER PATH:
+
+**Every credit open this bot has ever placed was an unbounded marketable
+order: the "limit" never bound, because the sign was wrong.** Mechanism,
+verified three independent ways tonight. (a) Broker behavior: 3 of
+today's 5 fills landed BELOW their own submitted limit — bot.log shows GLD
+submitted `limit_price '0.48'`, filled 0.31/share; XLK '1.0' → 0.88; QQQ
+'0.96' → 0.93 — impossible for a binding credit floor. (b) SDK ground
+truth: alpaca-py 0.44.0's own LimitOrderRequest docstring — "For the mleg
+order class ... a positive value indicates a debit (representing a cost or
+payment to be made) while a negative value signifies a credit" — and no
+sign validation anywhere in the SDK. A positive limit on a credit spread
+means "willing to PAY up to that much", which any credit fill satisfies at
+any price: the order just crosses at the market's net. (c) History: zero
+entry orders have ever rested or expired (grep: no "Pending #N rejected"
+ever), even on 6%-wide GLD quotes — a real floor would have refused those.
+This is the same signed-cost-basis convention the 08-30 fix pinned for
+`filled_avg_price` (top-level −0.54 for a real $0.54 credit); the price
+axis of the ORDER was never re-checked against it. Consequence chain: the
+09-11 anchored-floor fix computed the right number (today's five anchors
+all verify: max(judged, fresh)×0.9 matches every logged limit) but the
+number never reached the broker as a floor; fills are the quote-crossing
+net; and stop (2× fill) / profit target (0.5× fill) then anchor to the
+DEGRADED fill. Tonight's live exhibits: GLD id 39 filled $31 vs $45.5
+fresh mid — its stop is $62, and it marks $43 (69% of stop) while actually
+PROFITABLE vs its intended economics; XLK id 43 filled $88 (judged 107.5),
+stop $176, 20:30Z crossing mark $173 — born three dollars from its stop on
+a day XLK rallied +2.18%. That is the 09-11 XLK death-spiral shape, again,
+with the fix "verified" but inert.
+
+**Change (one theme: the floor must reach the broker as a floor).**
+`executor_mcp.open_spread` now submits `limit_price = str(-limit_credit)`
+— negative = net credit under Alpaca's signed mleg convention. The
+negation lives at the API boundary ONLY: `limit_credit_price` and every
+internal credit stay positive; `close_spread`'s debit limit is already a
+positive cost and is pinned as deliberately asymmetric. This touches the
+order-pricing line, not the idempotency or fill-confirmation paths. New
+`tests/test_entry_limit_sign.py` (5 tests): open payload negative
+(explicit and default-computed), close payload positive, regression pin of
+today's GLD shape (the 0.31 fill must violate the submitted limit), and
+fill-extraction sign unaffected. No existing test asserted on limit_price
+at all (checked — that absence is how this survived three weeks).
+
+**Failure mode if I'm wrong, stated honestly:** the one thing not
+verifiable offline is whether alpaca-mcp-server 2.3.0 re-signs or rejects
+a negative limit_price string before it reaches alpaca-py (its source
+lives in the uv cache, unreadable from this session; the SDK itself
+accepts negatives). If it rejects, tomorrow's first entry errors loudly
+("ERROR opening ..." in the journal, order fail-closed, nothing placed) —
+exits unaffected. Empirics argue it passes through: today's positive
+values reached the broker verbatim (fills below the "floor" prove the
+broker saw them as debit bounds, untransformed).
+
+**Watch tomorrow.** (1) First open of the day: bot.log "Opening ...
+limit_credit=0.XX" must be followed by either a fill with
+fill_credit ≥ 100×that floor, or an honest rest→expire through the pending
+path. A fill below floor = the fix failed; an immediate error = the MCP
+server rejects negative limits (team: verify/bump alpaca-mcp-server).
+Expect FEWER fills on wide-quoted names (GLD/XLK) — that is the fix
+working, not a regression. (2) XLK id 43: stop $176 vs crossing mark $173
+— likely stops at 13:30Z on quote width unless XLK opens strong; if it
+stops on a flat/green XLK, that is the exit-side mark-quality defect
+(proposal (b), 09-11) firing on a degraded-fill position — evidence for
+the team, not something I may loosen. (3) QQQ id 34 (721/726 bear call,
+mark ~192 vs stop 200): one more QQQ up-tick stops it; that is the stop
+working as designed. (4) GLD id 39's $62 stop is an artifact of the
+now-fixed defect; if it stops with a mark far below the ~$96 its judged
+economics imply, book it as the bug's trailing cost.
+
+**Proposals (not touched).** New: (g) three open positions born from
+degraded fills (GLD id 39, QQQ id 42, XLK id 43) carry stops/targets
+anchored ~10–35% too low; re-anchoring them to judged economics is a stop
+LOOSENING — team call, and time-sensitive for XLK id 43. (h) verify
+alpaca-mcp-server 2.3.0 passes negative mleg limit_price through
+(one-line read of its place_option_order in the uv cache). Prior
+proposals all still open: (a) SYSTEM_PROMPT hash in reasoner cache; (b)
+exit-side mark quality bound (tonight adds two exhibits); (c) get_clock
+retry; (d) TLT width lab; (e) L3b adjudication; (f) per-spread
+record_cycle duplication.
+
 ## 2026-09-16 evening (reviewing trading day 2026-09-16 — FOMC day: five closes, one open, blackout afternoon)
 
 **Verdict on the 09-14 prediction: CONFIRMED, within the readable evidence.**

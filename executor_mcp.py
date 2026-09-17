@@ -173,7 +173,9 @@ def _content_order_id(underlying: str, direction: str,
 
 def limit_credit_price(checked_credit_per_contract: float, slippage_pct: float | None = None) -> float:
     """Marketable limit for a credit spread: accept no less than this
-    per-share credit (Alpaca multi-leg limit is net credit in dollars/share).
+    per-share credit. Returned POSITIVE (the project-internal convention for
+    credits everywhere); open_spread negates it at the API boundary because
+    Alpaca's mleg limit_price is signed cost basis — see the comment there.
     """
     slip = config.risk.max_entry_slippage_pct if slippage_pct is None else slippage_pct
     per_share = checked_credit_per_contract / 100.0
@@ -261,7 +263,19 @@ async def open_spread(
             "qty": str(contracts),
             "order_class": "mleg",
             "type": "limit",
-            "limit_price": str(limit_credit),
+            # Alpaca's mleg limit_price is SIGNED COST BASIS (alpaca-py
+            # LimitOrderRequest docstring: "a positive value indicates a
+            # debit ... while a negative value signifies a credit") — the
+            # same convention as the top-level filled_avg_price pinned here
+            # 2026-08-30. A positive value is therefore a DEBIT bound, which
+            # any credit fill satisfies at ANY price: on 2026-09-17 GLD
+            # submitted '0.48' and filled at 0.31/share, XLK '1.0' filled at
+            # 0.88 — below their own "floors" — so every credit open to date
+            # was effectively an unbounded marketable order and the anchored
+            # entry floor (2026-09-11) never reached the broker. Negated at
+            # this API boundary ONLY; limit_credit stays a positive credit
+            # floor everywhere else in the codebase.
+            "limit_price": str(-limit_credit),
             "time_in_force": "day",
             "client_order_id": cid,
         },
@@ -343,6 +357,10 @@ async def close_spread(
             "qty": str(contracts),
             "order_class": "mleg",
             "type": "limit",
+            # Under the same signed-cost-basis convention as open_spread's
+            # limit above: closing a credit spread PAYS a net debit, so a
+            # positive limit_price is already the correct sign here — the
+            # asymmetry with open_spread's negation is deliberate.
             "limit_price": str(limit_debit),
             "time_in_force": "day",
             "client_order_id": cid,
