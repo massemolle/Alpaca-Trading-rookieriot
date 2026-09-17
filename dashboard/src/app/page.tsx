@@ -199,6 +199,7 @@ export default function DashboardPage() {
         the nightly engineer's self-modification trail.
         <br />
         <a href="/lab" className="underline text-gray-400">Lab →</a>{' '}
+        <a href="/micro" className="underline text-gray-400">Micro-Jev →</a>{' '}
         incremental backtest: each strategy component measured separately,
         with the full history of simulated trades.
       </p>

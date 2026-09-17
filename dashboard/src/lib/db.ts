@@ -1,5 +1,5 @@
-// Server-only — direct Postgres against the same Supabase project Agent
-// Bazaar uses, isolated in its own `alpaca_hackathon` schema (see
+// Server-only — direct Postgres against an existing Supabase project,
+// isolated in its own `alpaca_hackathon` schema (see
 // db.py for why this goes through Postgres directly
 // rather than PostgREST: that schema isn't in the project's "exposed
 // schemas" list, and this avoids needing that dashboard setting changed).
@@ -231,4 +231,44 @@ export async function getAuditState() {
   } finally {
     client.release();
   }
+}
+
+
+export async function getMicroState() {
+  const client = getPool();
+  const [decisions, trades, baselines, usage] = await Promise.all([
+    client.query(
+      `select rid, ts, symbol, have_position, action, p_up, p_exit, note
+       from ${SCHEMA}.micro_decisions order by rid desc limit 60`
+    ),
+    client.query(
+      `select id, symbol, notional, qty, entry_px, exit_px, opened_at, closed_at, pnl, exit_reason
+       from ${SCHEMA}.micro_trades order by id desc limit 60`
+    ),
+    client.query(
+      `select policy,
+              coalesce(sum(pnl) filter (where closed_at is not null), 0) as realized,
+              count(*) filter (where closed_at is null) as open_count,
+              count(*) filter (where closed_at is not null) as closed_count
+       from ${SCHEMA}.micro_baseline_trades group by policy`
+    ),
+    client.query(
+      `select coalesce(sum(usd),0) as spent, coalesce(sum(tokens),0) as tokens, count(*) as calls
+       from ${SCHEMA}.micro_jev_usage`
+    ),
+  ]);
+  const jevRealized = await client.query(
+    `select coalesce(sum(pnl) filter (where closed_at is not null), 0) as realized,
+            count(*) filter (where closed_at is null) as open_count,
+            count(*) filter (where closed_at is not null) as closed_count
+     from ${SCHEMA}.micro_trades`
+  );
+  return {
+    decisions: decisions.rows,
+    trades: trades.rows,
+    baselines: baselines.rows,
+    jev: jevRealized.rows[0],
+    usage: usage.rows[0],
+    generatedAt: new Date().toISOString(),
+  };
 }
