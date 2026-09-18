@@ -2,6 +2,70 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-18 evening (reviewing trading day 2026-09-18 — quiet tape, 2 opens + 8 abstentions, first "position intent mismatch" rejection)
+
+**Verdicts on 09-17 watch items.** (1) The negative-`limit_price` entry fix
+is CONFIRMED WORKING LIVE: two entries filled today (QQQ 705/700 at c267,
+XLK 185/180 10-09 at c270) through the negated-limit path, and both filled
+AT or ABOVE their judged credit for the first time on wide-quoted names
+(QQQ judged $84 → filled $80 within slippage budget; XLK judged $99 →
+filled $92). The alpaca-mcp-server pass-through question (proposal h) is
+answered by the fills themselves. (2) XLK id 43 did NOT stop out on quote
+width at the open despite sitting $3 from its too-tight stop — XLK rose
++0.84% and the position survived; the stale-stop re-anchor proposal (g)
+remains open but less urgent after two green XLK days. (3) GLD id 39
+(417/422 bear call) stopped at 13:30Z for −$27 on GLD's +0.63% day —
+a normal stop, not a degraded-fill artifact.
+
+**Evidence (analyze-regret first, as charged).** Sixth consecutive
+judge-healthy ablation. Per closed trade: real book −$52 avg (22 closed,
+−$1,146 all-time), shadow rule −$87 (12 closed), random −$127 (8 closed) —
+LLM > rule > random ordering holds. Today the judge abstained 8 of 10
+decision slates and opened 2; every one of today's 4 dropped candidates
+(XLK c269, GLD c266/268/269, XLE c260) currently marks NEGATIVE (−$7 to
+−$26) — zero regret today, and the abstention reasoning (stacked QQQ/XLE
+exposure, thin GLD credit, low-ADX regime) reads sound against a market
+day where nothing moved more than 0.84%. The shadow rule meanwhile
+re-stacked QQQ five more times. No selection pattern; the judge is not
+tonight's weak link.
+
+**The finding — class (c), in candidate construction.** Cycle 266 (17:01Z):
+the judge selected QQQ, both gates passed, and Alpaca 422-rejected the
+order: `position intent mismatch, inferred: sell_to_close, specified:
+sell_to_open` (code 42210000). Root cause desk-verified: the book was
+already long the QQQ 09-28 700P (hedge leg of spread id 42, 705/700), and
+the builder — position-blind — proposed 700/695 on the same expiration.
+Its short leg SELLS the very contract we hold long; Alpaca infers a close
+per contract and rejects the whole order. Corroboration: menu dedup shows
+c266's QQQ candidate collapsed into c243's open 700/695 episode, and
+c267's rebuilt 705/700 (short leg = a contract we're already SHORT — same
+side, no mismatch) filled cleanly 30 minutes later. Two failure modes hide
+here: the loud one (judge's pick erased for a cycle) and a silent nasty
+one — had such an order ever filled, it would have stripped the hedge leg
+off the existing spread, converting defined risk into a naked short.
+
+**Change (one theme).** `spread_builder` is now held-leg aware: `bot.py`
+`find_candidates` collects the option symbols of every open / pending /
+pending_close spread into `held_long_symbols` / `held_short_symbols` and
+passes them to `build_spread`; the short-candidate walk skips any pair
+that would SELL a held-long or BUY a held-short contract, falling through
+to the next short in delta order (c266 would have built 705/700 at 17:01
+instead of failing). Re-adding on the SAME side — stacking an identical
+spread, c267's proven behavior — stays allowed. Executor untouched; no
+risk limit moved (the check can only REMOVE order shapes the broker
+rejects or that would strip hedges). New `tests/test_spread_builder_leg_collision.py`
+(5 tests) pins: default no-op, the c266 short-leg fall-through, the
+long-leg mirror, the identical-restack allowance, and exhaustion → no plan.
+
+**Watch tomorrow.** (1) bot.log for "held long leg / held short leg" lines —
+each is a c266 prevented; confirm the fallback strikes look sane. (2) XLK
+concentration: the book now holds 185/180 on BOTH 10-02 and 10-09 plus
+today's +0.84% move — fine while green, but it's the same directional
+thesis twice. (3) QQQ triple-stack (2× 705/700 + book exposure $827): a
+red QQQ day hits all three at once; the judge already refuses to add a
+fourth. (4) Proposal (g) from 09-17 (re-anchor stale stops) still needs a
+human call.
+
 ## 2026-09-17 evening (reviewing trading day 2026-09-17 — risk-on rally, book refilled 3→8, back at cap by 18:00Z)
 
 **Verdicts on 09-16 watch items.** (1) Menu instrument: healthy — zero

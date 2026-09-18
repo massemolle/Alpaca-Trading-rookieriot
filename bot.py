@@ -414,6 +414,24 @@ async def find_candidates(
         if cluster is not None:
             cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
 
+    # Contracts the account holds (or may hold within seconds): a plan must
+    # never SELL a held-long or BUY a held-short contract — Alpaca infers
+    # close intent per leg and 422-rejects the whole order (cycle 266,
+    # 2026-09-18: QQQ 700/695 built while spread id 42 was long the 700P).
+    # Wider than the exposure loop above on purpose: pending entries can
+    # fill any moment, and pending_close legs exist until the close fills.
+    held_long_symbols: set[str] = set()
+    held_short_symbols: set[str] = set()
+    for s in db.get_manageable_spreads() + db.get_spreads_by_status("pending_close"):
+        for key, held in (
+            ("short_symbol", held_short_symbols),
+            ("long_symbol", held_long_symbols),
+            ("call_short_symbol", held_short_symbols),
+            ("call_long_symbol", held_long_symbols),
+        ):
+            if s.get(key):
+                held.add(s[key])
+
     candidates = []
     gate_rejections: list[dict] = list(funnel_rejections)
     equity = float(account["equity"])
@@ -424,6 +442,8 @@ async def find_candidates(
             plan = await build_spread(
                 mcp, sig.ticker, sig.direction,
                 spot_price=spot_mid, realized_vol=realized_vol,
+                held_long_symbols=held_long_symbols,
+                held_short_symbols=held_short_symbols,
             )
         except Exception:
             logger.exception("Failed to build spread for %s", sig.ticker)

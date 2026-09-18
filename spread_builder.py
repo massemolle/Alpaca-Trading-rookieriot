@@ -213,6 +213,9 @@ async def build_spread(
     signal_direction: str,
     spot_price: float,
     realized_vol: float,
+    *,
+    held_long_symbols: frozenset[str] | set[str] = frozenset(),
+    held_short_symbols: frozenset[str] | set[str] = frozenset(),
 ) -> SpreadPlan | None:
     """signal_direction is the vendored Signal's own 'long'/'short' field.
     `spot_price` is the underlying's current mid quote, `realized_vol` the
@@ -220,6 +223,18 @@ async def build_spread(
     used as the IV proxy for delta. Returns None (never a half-built spread)
     if the chain doesn't have a clean, liquid expiration/strike pair in the
     configured windows — a skipped cycle is always safer than a guessed one.
+
+    `held_long_symbols`/`held_short_symbols` are the option contracts the
+    account already holds (long legs / short legs of open or pending
+    spreads). Alpaca infers position intent per contract, so an open order
+    that SELLS a held-long contract or BUYS a held-short one is inferred as
+    a close and 422-rejected wholesale ("position intent mismatch" — live,
+    cycle 266 2026-09-18: QQQ 700/695 built while the book was long the
+    700P from an existing 705/700). Worse than the rejection: if such an
+    order ever filled it would strip the hedge leg off the existing spread.
+    Colliding leg pairs are therefore skipped at construction; re-adding to
+    an existing position on the SAME side (e.g. stacking the identical
+    spread) keeps matching open intents and stays allowed.
 
     Expirations inside the DTE window are tried nearest-first (most theta
     decay realized within the judged period): the first one that builds an
@@ -245,6 +260,8 @@ async def build_spread(
         plan = await _build_for_expiration(
             mcp, ticker, chosen_expiration, exp_contracts,
             is_bull_put, option_type, spot_price, realized_vol, today,
+            held_long_symbols=held_long_symbols,
+            held_short_symbols=held_short_symbols,
         )
         if plan is None:
             continue
@@ -277,6 +294,9 @@ async def _build_for_expiration(
     spot_price: float,
     realized_vol: float,
     today: date,
+    *,
+    held_long_symbols: frozenset[str] | set[str] = frozenset(),
+    held_short_symbols: frozenset[str] | set[str] = frozenset(),
 ) -> SpreadPlan | None:
     """One expiration's worth of the original build: delta-target the short,
     snap the long, quote the shortlist, walk the liquid shorts. Unchanged
@@ -375,11 +395,28 @@ async def _build_for_expiration(
     short_contract = long_contract = None
     short_mid = long_mid = None
     for cand, _d in liquid_candidates:
+        # Held-leg collision (see build_spread docstring): selling a contract
+        # the account is long, or buying one it is short, makes Alpaca infer
+        # a close intent and reject the whole order. A colliding pair is
+        # skipped as a unit — the long is snapped, not searched, so the next
+        # short in delta order is the well-defined fallback.
+        if cand["symbol"] in held_long_symbols:
+            logger.info(
+                "%s short leg %s is a held long leg (broker would infer "
+                "sell_to_close), trying next short", ticker, cand["symbol"],
+            )
+            continue
         cand_strike = float(cand["strike_price"])
         cand_long_strike = snap_long_strike(cand_strike)
         if cand_long_strike is None:
             continue
         cand_long = same_exp_by_strike[cand_long_strike]
+        if cand_long["symbol"] in held_short_symbols:
+            logger.info(
+                "%s long leg %s is a held short leg (broker would infer "
+                "buy_to_close), trying next short", ticker, cand_long["symbol"],
+            )
+            continue
         cand_long_snap = snap_by_symbol.get(cand_long["symbol"], {})
         if not _passes_liquidity(cand_long, cand_long_snap, max_spread_override=LONG_LEG_MAX_SPREAD_PCT):
             logger.info("%s long leg (%s) fails the liquidity gate, trying next short",
