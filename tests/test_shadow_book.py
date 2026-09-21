@@ -175,3 +175,53 @@ def test_regret_summary_math():
     assert s["taken_count"] == 1 and s["taken_total_usd"] == -30.0
     assert s["best_dropped"]["underlying"] == "AAA"
     assert len(s["rows"]) == 3 and s["rows"][2]["outcome_usd"] is None
+
+
+def test_ablation_totals_closed_only_and_per_arm():
+    real = [
+        {"status": "closed_profit", "realized_pnl": 50.0},
+        {"status": "closed_stop", "realized_pnl": -130.0},
+        {"status": "open", "realized_pnl": None},
+        {"status": "rejected", "realized_pnl": None},  # never traded, never counted
+    ]
+    shadow = [
+        {"policy": "shadow", "status": "closed_profit", "realized_pnl": 40.0},
+        {"policy": "shadow", "status": "closed_stop", "realized_pnl": -108.0},
+        {"policy": "shadow", "status": "open", "realized_pnl": None},
+        {"policy": "random", "status": "closed_expiry", "realized_pnl": -9.5},
+        # numeric-as-string survives the float cast (psycopg2 numerics)
+        {"policy": "random", "status": "closed_profit", "realized_pnl": "23.0"},
+    ]
+    t = shadow_book.ablation_totals(real, shadow)
+    assert t["llm_real"] == {"closed_n": 2, "realized_total_usd": -80.0,
+                             "avg_per_closed_usd": -40.0, "open_n": 1}
+    assert t["shadow"] == {"closed_n": 2, "realized_total_usd": -68.0,
+                           "avg_per_closed_usd": -34.0, "open_n": 1}
+    assert t["random"]["closed_n"] == 2 and t["random"]["realized_total_usd"] == 13.5
+
+
+def test_ablation_totals_empty_arm_has_no_avg():
+    t = shadow_book.ablation_totals([], [])
+    for arm in ("llm_real", "shadow", "random"):
+        assert t[arm] == {"closed_n": 0, "realized_total_usd": 0,
+                          "avg_per_closed_usd": None, "open_n": 0}
+
+
+def test_resolved_dropped_cycles_filters_and_caps():
+    def row(cid, *, taken=False, status="closed_profit", outcome=10.0):
+        return {"cycle_id": cid, "taken_by_llm": taken, "status": status,
+                "outcome_usd": outcome}
+
+    rows = [
+        row(242),                # wanted: dropped, closed, positive
+        row(241, taken=True),    # taken -> its journal was already read as a pick
+        row(240, status="open"), # unresolved mark, not a fill
+        row(239, outcome=-5.0),  # resolved loser: the drop was right
+        row(238, outcome=None),  # never marked
+        row(242),                # duplicate episode row
+        row(225),
+    ]
+    assert shadow_book.resolved_dropped_cycles(rows) == [242, 225]
+    many = [row(1000 - i) for i in range(20)]
+    assert len(shadow_book.resolved_dropped_cycles(many)) == 12
+    assert shadow_book.resolved_dropped_cycles(many)[0] == 1000

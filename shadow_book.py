@@ -244,6 +244,62 @@ def regret_summary(menu_rows: list[dict]) -> dict:
     }
 
 
+def ablation_totals(real_rows: list[dict], shadow_rows: list[dict]) -> dict:
+    """All-time closed-trade aggregates for the three-arm ablation (pure).
+
+    Must be fed FULL-table rows, not the evening context's windowed lists:
+    those are 'most recent N opens' per book, and because the rule book opens
+    several times faster than the real book, its window reaches back a fraction
+    as far — after a one-sided week the windows cover different regimes and a
+    naive comparison inverts (observed 2026-09-21). Compare the arms here.
+    """
+    arms = {"llm_real": real_rows}
+    for policy in ("shadow", "random"):
+        arms[policy] = [r for r in shadow_rows if r.get("policy") == policy]
+    out = {
+        "note": (
+            "All-time closed-trade P&L per arm, window-free. Use THIS for the "
+            "LLM-vs-rule-vs-random ablation; the row lists above are opened_at-"
+            "windowed per book and not comparable across arms."
+        ),
+    }
+    for name, rows in arms.items():
+        pnls = [
+            float(r["realized_pnl"]) for r in rows
+            if str(r.get("status") or "").startswith("closed")
+            and r.get("realized_pnl") is not None
+        ]
+        out[name] = {
+            "closed_n": len(pnls),
+            "realized_total_usd": round(sum(pnls), 2),
+            "avg_per_closed_usd": round(sum(pnls) / len(pnls), 2) if pnls else None,
+            "open_n": sum(1 for r in rows if r.get("status") == "open"),
+        }
+    return out
+
+
+def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 12) -> list[int]:
+    """Cycle ids whose journal reasoning the evening review needs: menu
+    episodes the LLM dropped that RESOLVED profitable. By resolution time the
+    cycle usually sits outside journal_recent's window (c192/c193/c225 on
+    09-16 and c242 on 09-21 all ended 'unclassifiable' that way), so the
+    context builder re-fetches these journals explicitly. Newest first."""
+    out: list[int] = []
+    for r in regret_rows:
+        cid = r.get("cycle_id")
+        if (
+            cid is not None
+            and not r.get("taken_by_llm")
+            and str(r.get("status") or "").startswith("closed")
+            and (r.get("outcome_usd") or 0) > 0
+            and cid not in out
+        ):
+            out.append(cid)
+        if len(out) >= cap:
+            break
+    return out
+
+
 async def manage_open(mcp) -> None:
     try:
         for row in _get_open():

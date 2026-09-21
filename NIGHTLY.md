@@ -2,6 +2,103 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-21 evening (reviewing trading day 2026-09-21 — risk-on Monday, 5 fills + first honest rest→expire, book back at cap)
+
+**Verdicts on 09-18 watch items — both live fixes CONFIRMED.** (1) The
+negative-`limit_price` floor now BINDS: all five of today's entry fills
+came in at or above their submitted floor (SPY $72 ≥ 68¢, QQQ $79 ≥ 76¢,
+XLE $75 ≥ 70¢, SPY $68 ≥ 67¢, QQQ $78 ≥ 76¢ — compare 09-17, when 3 of 5
+fills landed BELOW their "limit"), and GLD id 50 delivered the strongest
+possible proof: the judge picked it at c281, the order rested at its 50¢
+floor on GLD's wide quotes ALL afternoon (`status=pending`, "1 open
+orders" in every reconciliation 17:30–20:00Z) and expired unfilled at the
+close → row `rejected`, no position. First rest→expire in this bot's
+history — 09-17's "expect fewer fills on wide-quoted names, that is the
+fix working" happened exactly as written, and it refused a spread that
+marks −$15 in the menu tonight. (2) The held-leg guard fired three times
+(XLK 10-09 180P and XLK 10-02 180P held-long shorts at 14:00/15:00Z, SPY
+10-01 758P held-short long leg at 17:30Z), each falling through to the
+next strike with a clean fill after; zero broker 422s today (c266's was
+the last). (3) XLK id 43 did not stop — XLK +2.74% carried it to a +$173
+mark region; the stale-stop proposal (g) is now low-urgency but still
+open. (4) The QQQ stack the judge kept refusing to extend… see below.
+
+**Evidence (analyze-regret first, as charged) — and a near-miss in the
+instrument itself.** The naive step-2 read of tonight's context says the
+rule book crushed the LLM (+$43 vs −$35 per closed trade). That reading
+is FALSE, and the mechanism matters: `shadow_positions` is `order by
+opened_at desc limit 60` and the rule book opens ~4× faster than the real
+one, so its window reaches back only to 09-16 — the start of a four-day
+rally — while `spreads_all`'s 30 rows reach into the 09-09/09-16 selloff
+stops. Same-window comparison (opens since 09-16): real book closed 5 for
++$249 (+$49.8 avg, all profit targets), shadow closed 32 for +$1,380
+(+$43.1 avg, 31 winners + one −$108 stop). Per trade the arms are at
+parity; the total gap is the rule's TEN-deep QQQ clone-stack — marked
+−$11…−$21.5 and called out as un-book-aware on 09-17 — getting bailed out
+by QQQ +2.78%. One momentum day paying the reckless stacker is variance,
+not evidence; judge-healthy streak stands at seven sessions on the
+corrected read. Regret: today's dropped-positives (QQQ +26.5/+14/+13.5,
+SPY +40/+28/+16.5, XLE +15.5, TLT +10/+6, all marks except SPY c276
++$40 closed) every one cite concentration on an already-stacked name or
+strength < 0.3 — and they are all the SAME correlated bet ("index
+momentum continues"), not independent decisions. Class (a) across the
+board; the judge even took QQQ at c284 when it was the standout despite
+RSI 80.9, so it is not rigidly vetoing overbought. All-time menu still
+says drops are net-NEGATIVE (−$1,127 across 78; the 36 profitable misses'
++$955 is dwarfed by the −$2,082 of avoided losers). No pattern; the
+judge is not the weak link. But c242's SPY 775/780 bear call — the 5th
+profitable SPY bear-call drop, flagged on 09-17 with "classify it
+same-night from its journal; that row IS within the window" — resolved
+today +$30 and was AGAIN unclassifiable: the menu row survived, but the
+journal row aged out of `journal_recent`. Twice-costed windowing, tonight
+in both instruments.
+
+**Changes (one theme: the evening evidence instruments must be
+window-unbiased; no trading path touched).**
+1. `shadow_book.ablation_totals()` (pure) + `evening_context.py`: the
+   context now carries all-time closed-trade aggregates per arm
+   (llm_real / shadow / random: closed_n, realized total, avg per closed,
+   open_n) computed from full-table scans of three scalar columns — the
+   step-2 comparison no longer depends on regime-mismatched windows. The
+   windowed row lists stay, for inspecting individual trades.
+2. `shadow_book.resolved_dropped_cycles()` (pure) + `evening_context.py`:
+   the cycles behind menu drops that RESOLVED profitable (the exact rows
+   step 3 must classify; capped at 12, newest first) get their
+   `llm_reasoning` re-fetched into `menu_regret.resolved_dropped_journal`.
+   c242-shaped dead ends ("journal outside the window") can no longer
+   happen for resolved regret.
+3. `tests/test_shadow_book.py`: 3 new tests — per-arm closed-only math
+   (incl. numeric-string coercion and `rejected` exclusion), empty-arm
+   None-avg, and the resolved-drop filter/dedup/cap.
+
+**Not done, for the team.** (i) I could not update
+`.claude/skills/analyze-regret/SKILL.md` — the edit is permission-blocked
+in this session. Proposed wording, please apply: step 2 should read the
+comparison from `ablation_totals` and explicitly forbid recomputing
+totals from the windowed row lists (citing tonight's inversion); step 3
+should mention `menu_regret.resolved_dropped_journal` as where resolved
+drops' reasoning lives. (ii) c242 itself remains unclassifiable tonight
+(its journal is gone from the context; the fix is forward-looking) — the
+SPY bear-call drop pattern is now 5-for-5 profitable, +$242.5, and
+tomorrow's context should finally let a resolution be read same-night.
+(iii) Prior proposals (a)–(h) all still open; (g) re-anchor is
+low-urgency after today's rally.
+
+**Watch tomorrow.** (1) `ablation_totals` appears in the context and its
+llm_real numbers reconcile with the DB (first live run of the new
+section). (2) `resolved_dropped_journal` populates — if any drop resolves
+profitable tomorrow, classify it same-night; that has never yet been
+possible for an aged cycle. (3) The book is 8/8 with SEVEN long-equity
+spreads (SPY×2, QQQ×2, XLK×2, TLT bull-ish) after a +1.6%/+2.8% day —
+one red tech day marks the whole book down together; the judge's refusal
+to add a 9th is the system working, but exits will be busy. TLT id 35
+(81/86 bear call, exp 09-28) is the nearest pressure point with TLT at
+81.8, already through the short strike. (4) GLD: if the judge keeps
+picking it and the floor keeps refusing the fill, that is the floor
+saving us from bad prints — but three refused GLD entries in a row would
+argue for dropping GLD's weak signals at the screening bar instead of
+burning the judge's slot on unfillable spreads.
+
 ## 2026-09-18 evening (reviewing trading day 2026-09-18 — quiet tape, 2 opens + 8 abstentions, first "position intent mismatch" rejection)
 
 **Verdicts on 09-17 watch items.** (1) The negative-`limit_price` entry fix

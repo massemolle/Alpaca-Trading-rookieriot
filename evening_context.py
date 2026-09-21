@@ -90,6 +90,15 @@ def main() -> None:
             "shadow_positions": _q(cur, f"""select * from {s}.shadow_positions
                                            where policy in ('shadow','random')
                                            order by opened_at desc limit 60"""),
+            # Window-free: the row lists above are 'most recent N opens' per
+            # book, and the rule book opens several times faster than the real
+            # one — after a one-sided week their windows cover different
+            # regimes and a naive cross-book comparison inverts (2026-09-21).
+            "ablation_totals": shadow_book.ablation_totals(
+                _q(cur, f"select status, realized_pnl from {s}.spreads"),
+                _q(cur, f"""select policy, status, realized_pnl from {s}.shadow_positions
+                            where policy in ('shadow','random')"""),
+            ),
             "menu_regret": shadow_book.regret_summary(
                 _q(cur, f"""select * from {s}.shadow_positions where policy='menu'
                             order by opened_at desc limit 100""")
@@ -97,6 +106,21 @@ def main() -> None:
             "snapshots_recent": _q(cur, f"select * from {s}.account_snapshots order by snapshot_at desc limit 10"),
             "lab_summary": _q(cur, f"select * from {s}.lab_summary order by id"),
         }
+        # Resolved profitable drops must be classifiable from their cited
+        # reasoning, but by resolution time the cycle has usually aged out of
+        # journal_recent (c192/c193/c225 on 09-16, c242 on 09-21). Re-fetch
+        # exactly those journals; bounded by resolved_dropped_cycles' cap.
+        wanted = shadow_book.resolved_dropped_cycles(ctx["menu_regret"]["rows"])
+        if wanted:
+            cur.execute(
+                f"""select distinct on (cycle_id) cycle_id, llm_reasoning
+                    from {s}.decision_journal where cycle_id = any(%s)
+                    order by cycle_id desc""",
+                (wanted,),
+            )
+            ctx["menu_regret"]["resolved_dropped_journal"] = {
+                str(r["cycle_id"]): r["llm_reasoning"] for r in cur.fetchall()
+            }
     ctx["market_day"] = _market_day()
     # Feed the previous session back in — especially a REVERTED one: the next
     # engineer must see what was tried and which tests it broke, or it will
