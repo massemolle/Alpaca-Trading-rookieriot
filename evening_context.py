@@ -95,8 +95,9 @@ def main() -> None:
             # one — after a one-sided week their windows cover different
             # regimes and a naive cross-book comparison inverts (2026-09-21).
             "ablation_totals": shadow_book.ablation_totals(
-                _q(cur, f"select status, realized_pnl from {s}.spreads"),
-                _q(cur, f"""select policy, status, realized_pnl from {s}.shadow_positions
+                _q(cur, f"select status, realized_pnl, closed_at from {s}.spreads"),
+                _q(cur, f"""select policy, status, realized_pnl, closed_at
+                            from {s}.shadow_positions
                             where policy in ('shadow','random')"""),
             ),
             "menu_regret": shadow_book.regret_summary(

@@ -1,6 +1,8 @@
 """Offline tests for shadow_book's counterfactual selection semantics."""
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+
 import shadow_book
 from tests.conftest import make_plan
 
@@ -179,32 +181,61 @@ def test_regret_summary_math():
 
 def test_ablation_totals_closed_only_and_per_arm():
     real = [
-        {"status": "closed_profit", "realized_pnl": 50.0},
-        {"status": "closed_stop", "realized_pnl": -130.0},
-        {"status": "open", "realized_pnl": None},
-        {"status": "rejected", "realized_pnl": None},  # never traded, never counted
+        {"status": "closed_profit", "realized_pnl": 50.0,
+         "closed_at": "2026-09-22 14:30:12.677336+00:00"},   # inside window
+        {"status": "closed_stop", "realized_pnl": -130.0,
+         "closed_at": "2026-09-10 13:30:15+00:00"},          # outside window
+        {"status": "open", "realized_pnl": None, "closed_at": None},
+        {"status": "rejected", "realized_pnl": None, "closed_at": None},  # never traded, never counted
     ]
     shadow = [
-        {"policy": "shadow", "status": "closed_profit", "realized_pnl": 40.0},
-        {"policy": "shadow", "status": "closed_stop", "realized_pnl": -108.0},
-        {"policy": "shadow", "status": "open", "realized_pnl": None},
-        {"policy": "random", "status": "closed_expiry", "realized_pnl": -9.5},
+        # tz-aware datetime, as psycopg2 hands it back in-process
+        {"policy": "shadow", "status": "closed_profit", "realized_pnl": 40.0,
+         "closed_at": datetime(2026, 9, 21, 13, 30, tzinfo=timezone.utc)},
+        # legacy close without closed_at: counts all-time, never recent
+        {"policy": "shadow", "status": "closed_stop", "realized_pnl": -108.0,
+         "closed_at": None},
+        {"policy": "shadow", "status": "open", "realized_pnl": None, "closed_at": None},
+        {"policy": "random", "status": "closed_expiry", "realized_pnl": -9.5,
+         "closed_at": "2026-09-01 20:00:00+00:00"},
         # numeric-as-string survives the float cast (psycopg2 numerics)
-        {"policy": "random", "status": "closed_profit", "realized_pnl": "23.0"},
+        {"policy": "random", "status": "closed_profit", "realized_pnl": "23.0",
+         "closed_at": "2026-09-20 14:30:00+00:00"},
     ]
-    t = shadow_book.ablation_totals(real, shadow)
+    t = shadow_book.ablation_totals(real, shadow, today=date(2026, 9, 22))
     assert t["llm_real"] == {"closed_n": 2, "realized_total_usd": -80.0,
-                             "avg_per_closed_usd": -40.0, "open_n": 1}
+                             "avg_per_closed_usd": -40.0, "open_n": 1,
+                             "recent_7d": {"closed_n": 1, "realized_total_usd": 50.0,
+                                           "avg_per_closed_usd": 50.0}}
     assert t["shadow"] == {"closed_n": 2, "realized_total_usd": -68.0,
-                           "avg_per_closed_usd": -34.0, "open_n": 1}
+                           "avg_per_closed_usd": -34.0, "open_n": 1,
+                           "recent_7d": {"closed_n": 1, "realized_total_usd": 40.0,
+                                         "avg_per_closed_usd": 40.0}}
     assert t["random"]["closed_n"] == 2 and t["random"]["realized_total_usd"] == 13.5
+    assert t["random"]["recent_7d"] == {"closed_n": 1, "realized_total_usd": 23.0,
+                                        "avg_per_closed_usd": 23.0}
+
+
+def test_ablation_totals_recent_window_is_same_clock_for_every_arm():
+    # A cutoff boundary close (exactly recent_days ago) is IN the window,
+    # and the window is driven by closed_at, not by row order or book size.
+    real = [{"status": "closed_profit", "realized_pnl": 10.0,
+             "closed_at": "2026-09-15 13:30:00+00:00"}]
+    shadow = [{"policy": "shadow", "status": "closed_stop", "realized_pnl": -5.0,
+               "closed_at": "2026-09-14 20:00:00+00:00"}]
+    t = shadow_book.ablation_totals(real, shadow, today=date(2026, 9, 22))
+    assert t["llm_real"]["recent_7d"]["closed_n"] == 1
+    assert t["shadow"]["recent_7d"]["closed_n"] == 0
+    assert t["shadow"]["closed_n"] == 1  # still counted all-time
 
 
 def test_ablation_totals_empty_arm_has_no_avg():
     t = shadow_book.ablation_totals([], [])
     for arm in ("llm_real", "shadow", "random"):
         assert t[arm] == {"closed_n": 0, "realized_total_usd": 0,
-                          "avg_per_closed_usd": None, "open_n": 0}
+                          "avg_per_closed_usd": None, "open_n": 0,
+                          "recent_7d": {"closed_n": 0, "realized_total_usd": 0,
+                                        "avg_per_closed_usd": None}}
 
 
 def test_resolved_dropped_cycles_filters_and_caps():
@@ -222,6 +253,11 @@ def test_resolved_dropped_cycles_filters_and_caps():
         row(225),
     ]
     assert shadow_book.resolved_dropped_cycles(rows) == [242, 225]
+    # The cap is a safety valve, not a recency filter: at 12 it crowded out
+    # the flagged c242/c225/c193/c192/c142 pattern on 2026-09-22. Everything
+    # a 100-row menu window can hold must fit; only an absurd count trips it.
     many = [row(1000 - i) for i in range(20)]
-    assert len(shadow_book.resolved_dropped_cycles(many)) == 12
-    assert shadow_book.resolved_dropped_cycles(many)[0] == 1000
+    assert shadow_book.resolved_dropped_cycles(many) == [1000 - i for i in range(20)]
+    absurd = [row(9000 - i) for i in range(60)]
+    assert len(shadow_book.resolved_dropped_cycles(absurd)) == 40
+    assert shadow_book.resolved_dropped_cycles(absurd)[0] == 9000

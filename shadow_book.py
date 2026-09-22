@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import db
 import executor_mcp
@@ -244,46 +244,83 @@ def regret_summary(menu_rows: list[dict]) -> dict:
     }
 
 
-def ablation_totals(real_rows: list[dict], shadow_rows: list[dict]) -> dict:
-    """All-time closed-trade aggregates for the three-arm ablation (pure).
+def ablation_totals(
+    real_rows: list[dict],
+    shadow_rows: list[dict],
+    recent_days: int = 7,
+    today: date | None = None,
+) -> dict:
+    """Closed-trade aggregates for the three-arm ablation (pure): all-time
+    plus one shared recent clock window.
 
     Must be fed FULL-table rows, not the evening context's windowed lists:
     those are 'most recent N opens' per book, and because the rule book opens
     several times faster than the real book, its window reaches back a fraction
     as far — after a one-sided week the windows cover different regimes and a
     naive comparison inverts (observed 2026-09-21). Compare the arms here.
+
+    All-time alone is not enough either: it never dilutes the early-era
+    losses, so an arm that improved weeks ago can trail on the lifetime row
+    indefinitely (the 09-21 review had to hand-compute a same-window
+    comparison to see per-trade parity). recent_<N>d applies ONE cutoff —
+    closed_at within the last recent_days — to every arm, so it is
+    regime-fair by construction; rows closed without a closed_at (legacy)
+    count all-time but never recent.
     """
+    cutoff = (today or date.today()) - timedelta(days=recent_days)
+    recent_key = f"recent_{recent_days}d"
     arms = {"llm_real": real_rows}
     for policy in ("shadow", "random"):
         arms[policy] = [r for r in shadow_rows if r.get("policy") == policy]
     out = {
         "note": (
-            "All-time closed-trade P&L per arm, window-free. Use THIS for the "
-            "LLM-vs-rule-vs-random ablation; the row lists above are opened_at-"
-            "windowed per book and not comparable across arms."
+            "Closed-trade P&L per arm: all-time (window-free) plus "
+            f"{recent_key} (closed_at within {recent_days} days — the SAME "
+            "clock window for every arm, so it is regime-fair). Use these for "
+            "the LLM-vs-rule-vs-random ablation — all-time for lifetime, "
+            f"{recent_key} for the current judge; the row lists above are "
+            "opened_at-windowed per book and not comparable across arms."
         ),
     }
     for name, rows in arms.items():
-        pnls = [
-            float(r["realized_pnl"]) for r in rows
+        closed = [
+            r for r in rows
             if str(r.get("status") or "").startswith("closed")
             and r.get("realized_pnl") is not None
+        ]
+        pnls = [float(r["realized_pnl"]) for r in closed]
+        recent = [
+            float(r["realized_pnl"]) for r in closed
+            if r.get("closed_at") is not None and _to_date(r["closed_at"]) >= cutoff
         ]
         out[name] = {
             "closed_n": len(pnls),
             "realized_total_usd": round(sum(pnls), 2),
             "avg_per_closed_usd": round(sum(pnls) / len(pnls), 2) if pnls else None,
             "open_n": sum(1 for r in rows if r.get("status") == "open"),
+            recent_key: {
+                "closed_n": len(recent),
+                "realized_total_usd": round(sum(recent), 2),
+                "avg_per_closed_usd": round(sum(recent) / len(recent), 2) if recent else None,
+            },
         }
     return out
 
 
-def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 12) -> list[int]:
+def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 40) -> list[int]:
     """Cycle ids whose journal reasoning the evening review needs: menu
     episodes the LLM dropped that RESOLVED profitable. By resolution time the
     cycle usually sits outside journal_recent's window (c192/c193/c225 on
     09-16 and c242 on 09-21 all ended 'unclassifiable' that way), so the
-    context builder re-fetches these journals explicitly. Newest first."""
+    context builder re-fetches these journals explicitly. Newest first.
+
+    The cap is a safety valve, NOT a recency filter: at cap=12 a rally week's
+    fresh profitable drops crowded out the very cycles the review had flagged
+    for classification — c242/c225/c193/c192/c142 all fell past the cap on
+    2026-09-22, the first night this function ran. The input is already
+    bounded by the menu query (100 newest rows ≈ a few dozen distinct
+    cycles), so 40 means 'all of them' in practice while still bounding the
+    context if the menu window ever widens."""
     out: list[int] = []
     for r in regret_rows:
         cid = r.get("cycle_id")
@@ -334,6 +371,17 @@ async def manage_open(mcp) -> None:
 
 
 def _as_date(value) -> date:
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value)).date()
+
+
+def _to_date(value) -> date:
+    # Unlike _as_date, normalizes datetimes to plain dates so the result is
+    # always comparable against a date cutoff (psycopg2 hands back tz-aware
+    # datetimes; the JSON round-trip hands back strings).
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     return datetime.fromisoformat(str(value)).date()

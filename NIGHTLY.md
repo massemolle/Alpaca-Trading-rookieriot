@@ -2,6 +2,84 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-22 evening (reviewing trading day 2026-09-22 — flat tape, 3 profit-target closes + 2 opens, disciplined abstentions)
+
+**Verdicts on 09-21 watch items.** (1) `ablation_totals` ran live and
+desk-reconciles: `llm_real` {closed_n 42, −$1,429, −$34.02 avg, open_n 7}
+— the 22 closes visible in `spreads_all` sum to −$466 (leaving −$963 avg
+−$48 over the 20 pre-window closes, consistent with the early-September
+era), and open_n 7 matches every account snapshot. First live run clean.
+(2) `resolved_dropped_journal` populated (12 cycles) — but NOT with c242;
+see below, this is tonight's finding. (3) The correlated long-equity book
+did not get its red day: SPY −0.01%, QQQ +0.81%, and three positions hit
+their profit targets (QQQ +$40, XLK +$46, SPY +$38 = +$124 realized;
+book 8→7). TLT 81/86 (id 35) is still through its short strike, exp
+09-28, unresolved. (4) GLD: the judge dropped GLD in all seven slates it
+appeared in today (strength 0.24–0.37) — no floor-refused fills tonight
+because it never even picked one; the 09-21 screening-bar question stays
+open but has no new fills-evidence.
+
+**Evidence (analyze-regret).** Step 2, from `ablation_totals` as charged:
+all-time the rule leads per closed trade (−$20.44 vs LLM −$34.02 vs
+random −$41.92) — but that lifetime row carries the early-September
+stop-outs forever and can never show the judge's current form. Hand-built
+same-clock window (closed_at ≥ 09-15, every arm's rows): the real book
+closed 16 for −$58 across the FOMC whipsaw, and 11 for +$288 (+$26 avg)
+since 09-17 — the "rule > LLM" lifetime read is era-bias, not current
+evidence; judge-healthy streak stands at eight sessions and no prompt
+change is warranted. Step 3: today's ten drops marked −$12…+$14 — every
+citation is stacked-exposure or sub-0.4 strength on the same "index
+momentum continues" bet; class (a) across the board, no new pattern. The
+12 resolved-drop journals that DID arrive (c245–c282) all read the same
+way: correct reserve-slot discipline that a rally happened to pay. **The
+finding: the instrument crowd-out.** `resolved_dropped_cycles` is cap=12
+newest-first, and the resolved-positive drops newest-first are exactly
+c282…c245 — so the flagged 5-for-5 profitable SPY bear-call pattern
+(c242/c225/c193/c192/c142, +$242.5) fell at positions 15–23 and was
+excluded by the very feature built on 09-21 to classify it. Third
+consecutive session c242 ends "unclassifiable", and in a rally the cap
+can never drain: fresh class-(a) drops resolve faster than old ones age
+out of the 100-row menu window.
+
+**Changes (one theme: finish the window-unbiased evidence instruments;
+no trading path touched).**
+1. `shadow_book.resolved_dropped_cycles`: cap 12 → 40 with the docstring
+   rewritten to say what the cap is (a safety valve) and is not (a
+   recency filter). The input is already bounded by the menu query's 100
+   rows (~two dozen distinct resolved-drop cycles), so 40 = "all of
+   them" in practice; tomorrow's context should carry ~23 journals
+   including every flagged SPY bear-call cycle.
+2. `shadow_book.ablation_totals` now also emits `recent_7d` per arm
+   (closed_n / realized_total / avg over trades with closed_at in the
+   last 7 days — ONE cutoff shared by every arm, regime-fair by
+   construction; legacy closes without closed_at count all-time only).
+   `evening_context.py` feeds `closed_at` through. Step 2 no longer
+   needs the hand-computed same-window comparison that both 09-21 and
+   tonight required.
+3. `tests/test_shadow_book.py`: the two ablation tests updated for the
+   new shape (string/datetime/None closed_at coercions, boundary-day
+   inclusive, empty-arm), one new same-clock-window test, and the
+   resolved-drop test now pins "20 in → 20 out" plus the 40 safety valve.
+
+**Not done, for the team.** The `analyze-regret` SKILL.md rewording
+proposed on 09-21 is still unapplied (edits to `.claude/` remain
+permission-blocked). Please apply, extended for tonight: step 2 should
+read `ablation_totals` — all-time for lifetime, `recent_7d` for current
+form — and forbid recomputing arm totals from the windowed row lists;
+step 3 should read `menu_regret.resolved_dropped_journal` for resolved
+drops' cited reasoning.
+
+**Watch tomorrow.** (1) `resolved_dropped_journal` must now include
+c242/c225/c193/c192/c142 — classify the SPY bear-call drop pattern
+SAME NIGHT; it is the oldest open question in this log. (2) First live
+`recent_7d`: expect llm_real ≈ {16 closes, −$58} shifting positive as
+the 09-16 FOMC closes (−$346) age past the cutoff on 09-24 — if rule
+`recent_7d` decisively beats LLM on a same-clock read, THAT (not the
+lifetime row) is the trigger for tune-reasoner-prompt. (3) TLT id 35
+bear call, through its short strike, exp 09-28. (4) GLD screening bar:
+seven sub-0.4 drops today; if the week ends with GLD never clearing 0.4,
+design the lab experiment from the journaled strengths.
+
 ## 2026-09-21 evening (reviewing trading day 2026-09-21 — risk-on Monday, 5 fills + first honest rest→expire, book back at cap)
 
 **Verdicts on 09-18 watch items — both live fixes CONFIRMED.** (1) The
