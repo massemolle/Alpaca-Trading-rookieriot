@@ -71,6 +71,9 @@ class _RecordingDB:
     def get_manageable_spreads(self):
         return [dict(s) for s in self.spreads]
 
+    def get_spreads_by_status(self, status):
+        return [dict(s) for s in self.spreads if s.get("status") == status]
+
     def update_spread_status(self, spread_id, status, **kwargs):
         self.status_updates.append((spread_id, status, kwargs))
 

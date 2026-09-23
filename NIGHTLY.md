@@ -2,6 +2,163 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-23 evening (reviewing trading day 2026-09-23 — red tape; a fictional close deadlocked the whole bot from 15:00Z. TEAM ACTION REQUIRED before tomorrow's open — see the SQL below)
+
+**The incident (class (c), order path — it owns the whole afternoon).**
+At 14:30:53Z TLT id 35 (81/86 bear call, credit $74) hit its profit
+target on TLT's −1.58% day and `manage_open_spreads` submitted the close
+(limit debit = 1.1 × the $36 mark). The order rested past the executor's
+poll window → `close_spread` correctly returned `status="pending"`,
+`fill_credit=None`. Then bot.py's fallback did the damage:
+`close_debit = fill_credit if not None else MARK` → realized_pnl became
++$38 (non-None) → the `pending_close` branch, which required
+`realized_pnl is None`, was unreachable whenever a mark existed — i.e.
+in every non-force-close exit, since `should_close` needs the mark. The
+DB recorded `closed_profit +$38` for a fill that never happened. From
+15:00Z, every cycle (313–324) reconcile-blocked on the now-"orphan"
+broker legs — and `run_cycle` returns BEFORE `manage_open_spreads`, so
+the five genuinely open spreads (QQQ 53, XLE 52, SPY 49, XLE 48, XLK 45)
+had zero stop/profit-target management for the final six hours of a
+−0.71% SPY day, and the shadow/menu books went unmarked too. The close
+order (day TIF) expired at the bell: the broker still holds both TLT
+legs, the DB still says closed, and reconcile will block again from
+tomorrow's FIRST cycle. Compounding discoveries while desk-tracing: (a)
+`pending_close` was a dead-end status — set in one place, resolved
+nowhere, invisible to the reconciler (had the designed branch ever
+fired, the bot would have deadlocked anyway); (b) the reconciler's
+qty-consistency check had the same gap for stacked symbols with a
+resting entry. The 09-11 session built the pending→rejected path for
+ENTRIES; the exit side never got its twin until tonight.
+
+**Team action required BEFORE tomorrow's open (else the bot stays fully
+halted — no entries AND, worse, no exits):**
+```sql
+update <schema>.spreads
+set status = 'open', realized_pnl = null, closed_at = null
+where id = 35;  -- verify first: status='closed_profit', realized_pnl=38
+```
+TLT closed 80.465, back below the 81 short strike; on the first clean
+cycle the profit target re-fires and the close is re-attempted honestly
+under tonight's fix. Strip the fictional +$38 from any P&L reads:
+llm_real `recent_7d` is really ≈ −$23 over 17 closes, not +$15 over 18.
+Unexplained residue for the team: account cash rose $49.05 between the
+16:30Z and 17:00Z snapshots with no DB trade — possibly paper-account
+interest; positions were static, but worth an eyeball at the broker.
+
+**Verdicts on 09-22 watch items.** (1) `resolved_dropped_journal`
+carried 21 cycles tonight — including ALL FIVE flagged SPY bear-call
+drops. Classified below; the oldest open question in this log is closed.
+(2) First live `recent_7d`: llm_real {18 closed, +$15, +$0.83/trade}
+(fiction-corrected ≈ {17, −$23}), shadow {53, +$478.9, +$9.04}, random
+{17, −$579.45, −$34.09}. The rule beats the LLM on the same clock — but
+this is not yet the tune-reasoner trigger: the window is one rally week
+that paid the rule's QQQ clone-stacking (09-21's same-window read showed
+per-trade parity), the virtual arms fill at mid with zero slippage
+(09-11 caveat (c)), the FOMC −$346 ages out of the LLM row tomorrow as
+predicted, and today's number is corrupted by the fiction anyway.
+Re-read on 09-24 with row 35 repaired; two consecutive decisive
+same-clock wins for the rule = the trigger stands per 09-22. (3) TLT
+id 35 became today's incident instead of resolving quietly. (4) GLD:
+two more sub-0.4 drops (0.081 c312, 0.387 c310) — the week tally toward
+the screening-bar lab experiment continues, no fills evidence added.
+
+**Evidence (analyze-regret, as charged).** Step 2 from
+`ablation_totals`: all-time LLM −$30.82 vs rule −$20.66 vs random
+−$41.92 per closed trade (lifetime, era-biased as documented);
+`recent_7d` above. Today's judge behavior reads well IN CONTEXT
+(market_day: SPY −0.71%, QQQ −0.84%, IWM −1.80%): c311/c312 abstained
+on already-stacked long-index names and near-zero fresh signals that
+the red tape then vindicated, and c310's one pick (SPY 0.848, a
+deliberate stack) was erased by a pretrade-gate CONNECTION error
+("Remote end closed connection without response", fail-closed) — lucky
+on a red day, and one more exhibit for standing proposal (c)
+(single retry on transport errors; get_clock 09-11, pretrade gate
+today). Step 3: all-time drops remain net-avoided-losses (77 drops
+−$2,345.25 aggregate; the 30 profitable misses +$1,072.5). **The SPY
+bear-call drop pattern, classified at last** (c142 +$56, c192 +$57.5,
+c193 +$48, c225 +$51, c242 +$30 = +$242.5): read verbatim, every one
+of the five cites SPY strength 0.065–0.258 as noise-level, most adding
+poorest-R/R-of-slate or already-held — and each strength value WAS
+noise-level; no fact was misread, no fact-class recurs as misweighted.
+Classification: (a) — individually sound, all five. The residue is a
+POLICY hypothesis, not a judge defect: in low-ADX ranging regimes,
+far-OTM index credit spreads keep resolving profitable regardless of
+directional conviction — directional strength (the axis the judge
+correctly applies, and the axis the signals emit) may be the wrong
+gating axis for range-regime theta. That is a lab question:
+run-lab-experiment on "ADX < 15 slates: take best credit/max_loss ≥ X%
+vs abstain", using the menu book as ground truth. Written here for a
+quiet evening or a team run — NOT a prompt change; the journals show
+the prompt doing its job.
+
+**Changes (one theme: the close path must record only broker truth,
+and an in-flight close must be a state every layer understands; no
+risk limit, no executor safety path, no DRY_RUN mechanics touched).**
+1. `bot.py` close recording: `result.status == "pending"` now ALWAYS
+   parks the row as `pending_close` (order ids updated to the close
+   order), records NO realized P&L, and notes "order resting, no fill
+   yet". The mark fallback survives only for non-pending shapes — the
+   DRY_RUN path (`status="dry_run"`) records mark-based closes exactly
+   as before, pinned by test.
+2. `bot.py` new pending_close resolver (mirrors the 09-11 pending-entry
+   resolver, runs before market-hours checks): order filled → book the
+   REAL debit via the pinned extractor (both sign conventions tested:
+   top-level cost-to-acquire positive, per-leg net); order
+   expired/canceled with contracts still alive → row back to `open`,
+   falling through so exits re-evaluate THE SAME cycle with a fresh
+   mark; contracts expired first → `closed_expiry` with P&L honestly
+   unknown; order still working → leave it alone.
+3. `reconciler.py`: pending and pending_close legs are now "known
+   in-flight" — pending_close legs explain otherwise-orphan broker
+   positions, and in-flight symbols skip the qty/side comparison for
+   the one cycle the transition lasts. NOT a loosening: any leg not
+   explained by a tracked in-flight order still blocks exactly as
+   before (pinned by a control test), and without this, change 1 would
+   merely convert today's block into a different block — the reconciler
+   was only ever "correct" because pending_close never actually
+   occurred. Docstring updated to say all this.
+4. `tests/test_close_pending_truth.py` (10 tests): today's exact TLT
+   shape (pending close books NOTHING, parks pending_close), filled
+   close unchanged, DRY_RUN shape unchanged, resolver fill both sign
+   paths, dead-order revert-and-resume (the retried close fills in the
+   same cycle), expired-contract closure, still-working no-op, and
+   three reconciler pins (pending_close legs tolerated / truly orphan
+   legs still block / stacked in-flight qty skip).
+   `tests/test_entry_fill_economics.py`'s fake DB gained the
+   `get_spreads_by_status` method the manage loop now calls.
+   VERIFIED IN-SESSION, not just desk-checked: `python -m pytest tests/
+   -q` → 174 passed, and `py_compile` clean on every touched module.
+   (Session note for the team: the wrapper's exact allowlisted command
+   forms DO run — bare `python -m pytest` works; the "execution
+   blocked" belief from 09-01/09-21 came from compound/prefixed
+   invocations. Recorded in session memory so future nights verify
+   instead of desk-checking.) The gate's DRY_RUN cycle will
+   reconcile-block tonight against the real broker divergence — that
+   is correct behavior and exits 0, so it does not fail the gate.
+
+**Watch tomorrow.** (1) BEFORE anything else: has the row-35 repair
+run? If cycles still journal reconcile_block, escalate — every blocked
+cycle is an unmanaged book. (2) After repair: TLT close re-fires;
+expect a real fill with honest realized P&L, or a "Close submitted TLT
+bear_call: … order resting" note followed next cycle by "Pending close
+#35 …" — the resolver's first live outing. (3) XLE is the nearest
+pressure point while any block lasts: two bear calls (ids 48, 52)
+short 63/63.5 vs XLE 62.38 after a +0.99% day. (4) Re-read `recent_7d`
+per watch item 2 above. (5) `closed_pending` rows (filled but
+price-unreadable) should be rare-to-never; one appearing means the
+extractor met an order shape it doesn't know — capture it.
+
+**Proposals (not touched).** NEW (i): on reconcile block, `run_cycle`
+returns before ALL exit management — today that cost six unmanaged
+hours for five spreads whose own legs verified clean. Managing
+broker-verified positions (exits only, no entries) under a block would
+preserve the safety guarantee; it changes fail-closed semantics in
+run_cycle, so it is the team's call. NEW (j): a resting close keeps
+its possibly-junk mark-derived limit until the bell; per-cycle
+cancel-and-replace against a fresh mark is order-management machinery
+adjacent to proposal (b) (exit mark quality) — team call. Prior
+(a)–(h) all still open; (c) gained today's pretrade-gate exhibit.
+
 ## 2026-09-22 evening (reviewing trading day 2026-09-22 — flat tape, 3 profit-target closes + 2 opens, disciplined abstentions)
 
 **Verdicts on 09-21 watch items.** (1) `ablation_totals` ran live and

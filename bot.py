@@ -217,6 +217,17 @@ def _entry_limit_credit(judged_credit: float, fresh_credit: float) -> float:
     return executor_mcp.limit_credit_price(max(judged_credit, fresh_credit))
 
 
+def _spread_order_ids(spread: dict) -> list:
+    ids = spread.get("alpaca_order_ids") or []
+    if isinstance(ids, str):
+        import json
+        try:
+            ids = json.loads(ids)
+        except Exception:
+            ids = []
+    return ids
+
+
 async def manage_open_spreads(
     mcp: AlpacaMCP,
     client: AlpacaClient,
@@ -224,17 +235,11 @@ async def manage_open_spreads(
     market_open: bool,
 ) -> list[str]:
     notes = []
-    for spread in db.get_manageable_spreads():
+    for spread in db.get_manageable_spreads() + db.get_spreads_by_status("pending_close"):
         status = spread.get("status")
         # Pending: try to resolve fill state before managing exits.
         if status == "pending":
-            order_ids = spread.get("alpaca_order_ids") or []
-            if isinstance(order_ids, str):
-                import json
-                try:
-                    order_ids = json.loads(order_ids)
-                except Exception:
-                    order_ids = []
+            order_ids = _spread_order_ids(spread)
             if order_ids and hasattr(client, "get_order"):
                 try:
                     order = client.get_order(str(order_ids[0]))
@@ -269,6 +274,74 @@ async def manage_open_spreads(
                     continue
             else:
                 continue
+
+        # Pending close (2026-09-23): a close order that rested past the
+        # executor's poll window. Settle it against the broker before
+        # anything else — the position may be gone (order filled) or still
+        # ours (order died unfilled).
+        if status == "pending_close":
+            order_ids = _spread_order_ids(spread)
+            if not order_ids or not hasattr(client, "get_order"):
+                continue
+            try:
+                order = client.get_order(str(order_ids[0]))
+            except Exception:
+                logger.exception("Failed to resolve pending close for spread %s", spread["id"])
+                continue
+            ost = str(order.get("status") or "").lower()
+            if ost in executor_mcp.FILLED_STATUSES:
+                fill_per_share = executor_mcp._extract_filled_avg_price(order)
+                # Same convention as close_spread: the extractor returns net
+                # cash RECEIVED per share (negative for the debit paid to
+                # close a credit spread), so the debit is its negation.
+                if fill_per_share is not None:
+                    close_debit = round(-fill_per_share * 100, 2)
+                    realized_pnl = (
+                        (float(spread["credit_received"]) - close_debit)
+                        * int(spread.get("contracts") or 1)
+                    )
+                    db.record_spread_close(
+                        spread["id"],
+                        "closed_profit" if realized_pnl > 0 else "closed_stop",
+                        realized_pnl,
+                    )
+                    notes.append(
+                        f"Pending close #{spread['id']} filled "
+                        f"({spread['underlying']} {spread['direction']}, "
+                        f"P&L ${realized_pnl:+.2f})"
+                    )
+                else:
+                    db.record_spread_close(spread["id"], "closed_pending", None)
+                    notes.append(
+                        f"Pending close #{spread['id']} filled, "
+                        f"fill price unreadable (P&L unknown)"
+                    )
+                continue
+            if ost in executor_mcp.TERMINAL_BAD:
+                exp_date = datetime.strptime(str(spread["expiration"]), "%Y-%m-%d").date()
+                if exp_date < datetime.now(timezone.utc).date():
+                    # The contracts themselves expired before any close
+                    # filled — settlement already happened at the broker;
+                    # the cash P&L is not knowable from here.
+                    db.record_spread_close(spread["id"], "closed_expiry", None)
+                    notes.append(
+                        f"Pending close #{spread['id']} {ost}; contracts "
+                        f"expired (P&L unknown)"
+                    )
+                    continue
+                # The close never filled and the position is still ours:
+                # back to open, and fall through so the exit logic
+                # re-evaluates it THIS cycle with a fresh mark. (The row's
+                # order ids now point at the dead close order; only the
+                # pending-entry resolver reads that field.)
+                db.update_spread_status(spread["id"], "open")
+                spread = {**spread, "status": "open"}
+                notes.append(
+                    f"Close order for #{spread['id']} {ost} unfilled — "
+                    f"position still open, resuming exit management"
+                )
+            else:
+                continue  # close order still working at the broker
 
         expiration = datetime.strptime(str(spread["expiration"]), "%Y-%m-%d").date()
         force_close, force_reason = risk_gate.should_force_close(expiration=expiration)
@@ -321,6 +394,25 @@ async def manage_open_spreads(
                 direction=spread["direction"],
             )
             contracts_held = int(spread.get("contracts") or 1)
+            if result.status == "pending":
+                # 2026-09-23 (TLT id 35): a resting close order is NOT a
+                # fill. The old fallback booked the MARK as the exit price
+                # the moment the order was submitted — the DB said
+                # closed_profit +$38 while both legs (and the working
+                # order) were still at the broker, and the reconciler then
+                # fail-closed every remaining cycle of the session against
+                # the divergence this very branch had written. Park the row
+                # as pending_close; the resolver above settles it against
+                # the broker on the next cycle.
+                db.update_spread_status(
+                    spread["id"], "pending_close",
+                    alpaca_order_ids=result.order_ids,
+                )
+                notes.append(
+                    f"Close submitted {spread['underlying']} {spread['direction']}: "
+                    f"{reason} — order resting, no fill yet"
+                )
+                continue
             close_debit = result.fill_credit if result.fill_credit is not None else mark
             if close_debit is None:
                 realized_pnl = None
@@ -339,13 +431,7 @@ async def manage_open_spreads(
                     f"Closed {spread['underlying']} {spread['direction']}: "
                     f"{reason} (P&L ${realized_pnl:+.2f})"
                 )
-            if result.status == "pending" and realized_pnl is None:
-                db.update_spread_status(
-                    spread["id"], "pending_close",
-                    alpaca_order_ids=result.order_ids,
-                )
-            else:
-                db.record_spread_close(spread["id"], status, realized_pnl)
+            db.record_spread_close(spread["id"], status, realized_pnl)
         except Exception as exc:
             logger.exception("Failed to close spread %s", spread["id"])
             notes.append(f"ERROR closing {spread['underlying']}: {exc}")

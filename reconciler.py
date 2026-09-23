@@ -63,7 +63,11 @@ def _db_leg_symbols(spreads: list[dict[str, Any]]) -> set[str]:
 _LEG_ROLES = {"short_symbol": "short", "long_symbol": "long"}
 
 
-def _leg_consistency_issues(spreads: list[dict[str, Any]], positions: list[dict[str, Any]]) -> list[str]:
+def _leg_consistency_issues(
+    spreads: list[dict[str, Any]],
+    positions: list[dict[str, Any]],
+    in_flight: set[str] = frozenset(),
+) -> list[str]:
     # 2026-09-02: compare AGGREGATED-BY-SYMBOL, not per-spread — the broker
     # reports one net position per option symbol, so two 1-contract spreads
     # sharing the same strikes (happened live: cycles 53+54 both chose QQQ
@@ -89,6 +93,12 @@ def _leg_consistency_issues(spreads: list[dict[str, Any]], positions: list[dict[
                 )
     issues: list[str] = list(dict.fromkeys(side_conflicts))
     for symbol, qty in expected_qty.items():
+        # 2026-09-23: a symbol with a working entry or close order against
+        # it is legitimately mid-transition — its broker qty can differ
+        # from the settled expectation for one cycle. The manage loop
+        # resolves the order next cycle and the check re-arms.
+        if symbol in in_flight:
+            continue
         pos = by_symbol.get(symbol)
         if pos is None:
             continue  # already reported as a phantom leg above
@@ -112,8 +122,11 @@ def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
 
     - Legs in DB but not at broker → phantom local position (block).
     - Legs at broker but not in DB → orphaned broker position (block).
-    Pending spreads (submitted, not yet filled) are listed but do not by
-    themselves fail reconciliation when their legs are still absent.
+    Pending spreads (entry submitted, not yet filled) and pending_close
+    spreads (close submitted, not yet filled) are in a known transitional
+    state: their legs may legitimately be absent (pending) or still present
+    (pending_close) at the broker, so neither fails reconciliation by
+    itself — the manage loop settles both against the broker next cycle.
     """
     reasons: list[str] = []
     try:
@@ -131,24 +144,31 @@ def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
     try:
         open_spreads = db.get_open_spreads()
         pending_spreads = db.get_spreads_by_status("pending")
+        pending_close_spreads = db.get_spreads_by_status("pending_close")
     except Exception as exc:
         logger.exception("Failed to fetch local spreads")
         return ReconcileResult(ok=False, reasons=[f"local book unavailable: {exc}"])
 
     broker_syms = _option_symbols_from_positions(positions)
     # Pending rows are expected not to have broker positions yet — exclude
-    # their legs from the "phantom DB" check.
+    # their legs from the "phantom DB" check. Pending-close rows are the
+    # mirror (2026-09-23, TLT id 35): their legs are expected to STILL be
+    # at the broker until the close order fills, so they explain otherwise
+    # "orphan" broker legs.
     pending_legs = _db_leg_symbols(pending_spreads)
+    pending_close_legs = _db_leg_symbols(pending_close_spreads)
     open_legs = _db_leg_symbols(open_spreads)
 
     phantom = open_legs - broker_syms
-    orphan = broker_syms - open_legs - pending_legs
+    orphan = broker_syms - open_legs - pending_legs - pending_close_legs
 
     if phantom:
         reasons.append(f"DB-open legs missing at broker: {sorted(phantom)}")
     if orphan:
         reasons.append(f"broker option legs missing from DB: {sorted(orphan)}")
-    reasons.extend(_leg_consistency_issues(open_spreads, positions))
+    reasons.extend(_leg_consistency_issues(
+        open_spreads, positions, in_flight=pending_legs | pending_close_legs,
+    ))
 
     ok = not reasons if block_on_mismatch else True
     if reasons:
@@ -163,7 +183,7 @@ def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
         ok=ok,
         reasons=reasons,
         broker_option_symbols=broker_syms,
-        db_leg_symbols=open_legs | pending_legs,
+        db_leg_symbols=open_legs | pending_legs | pending_close_legs,
         pending_spreads=pending_spreads,
         open_orders=open_orders,
     )
