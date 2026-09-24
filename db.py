@@ -171,6 +171,36 @@ def get_manageable_spreads() -> list[dict[str, Any]]:
         return list(cur.fetchall())
 
 
+def get_recently_closed_spreads(days: int = 10) -> list[dict[str, Any]]:
+    """Closed rows young enough to be candidates for the reconciler's
+    false-close self-heal (2026-09-24). Excludes 'rejected' (entry never
+    filled) by construction; newest close first so the most recent claimant
+    wins when leg symbols repeat."""
+    with _connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"""select * from {_schema()}.spreads
+                where status like 'closed%%'
+                  and closed_at is not null
+                  and closed_at > now() - make_interval(days => %s)
+                order by closed_at desc""",
+            (days,),
+        )
+        return list(cur.fetchall())
+
+
+def reopen_spread(spread_id: int) -> None:
+    """Reconcile self-heal: revert a false close. The close order never
+    filled and the broker still holds the legs, so the recorded status and
+    P&L were fiction (2026-09-23, TLT id 35); broker truth wins."""
+    with _connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""update {_schema()}.spreads
+                set status = 'open', realized_pnl = null, closed_at = null
+                where id = %s""",
+            (spread_id,),
+        )
+
+
 def _ensure_decision_journal_table() -> None:
     with _connection() as conn, conn.cursor() as cur:
         cur.execute(f"""

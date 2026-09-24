@@ -2,6 +2,98 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-24 evening (reviewing trading day 2026-09-24 — the repair never ran; a full day deadlocked. Tonight the reconciler learns to run it itself)
+
+**Verdicts on 09-23 watch items.** (1) **The row-35 SQL did NOT run.** Every
+market-hours cycle today (325–341, all seventeen) reconcile-blocked on the
+same two TLT legs — zero decisions, zero screening, and the five genuinely
+open spreads got their SECOND consecutive day with no stop/profit-target
+management (the shadow/menu books went unmarked too). The team-action
+channel (all-caps NIGHTLY.md header + the review + the dashboard halt)
+demonstrably does not reach a human in time. (2) The TLT close re-fire
+never got its test — blocked all day; TLT fell another −1.29% to 79.43,
+so the stuck 81/86 bear call is even deeper OTM and the eventual honest
+close should be a near-max profit. (3) XLE survived unmanaged again:
++0.37% to 62.61, shorts 63/63.5 still OTM — the third day of luck doing
+risk management's job. (4) `recent_7d` re-read, fiction-corrected: llm_real
+{13, +$361} is really ≈ {12, +$323, +$26.9/trade} vs shadow {42, +$1,401.95,
++$33.38} vs random {12, +$159.5, +$13.29}. The rule leads by ~$6.5/trade
+against an arm that fills at mid with zero slippage — NOT the second
+"decisive" same-clock win; the tune-reasoner trigger does not fire, and
+with zero decisions today there is no fresh judge evidence anyway.
+(5) No `closed_pending` rows appeared (nothing could close).
+
+**Evidence (analyze-regret, as charged).** Step 2 from `ablation_totals`:
+all-time LLM −$30.82 / rule −$20.66 / random −$41.92 per closed trade
+(era-biased lifetime); `recent_7d` as above. Step 3: no new regret rows to
+classify — the funnel never ran. Today's weakest link is unambiguous and
+is class (c) infrastructure: a *provably false* DB row (id 35,
+`closed_profit +$38`, both legs verifiably still at the broker) that no
+layer was allowed to repair. The 09-23 fixes stop NEW fictional closes
+(pending → `pending_close` → resolver), but a row already poisoned — or
+any future divergence of this shape from a crash between close-submit and
+record — deadlocks the bot forever pending a human who, evidence now
+shows, may not come.
+
+**Change (one theme: the reconciler must repair what broker truth proves,
+not just block on it; its own docstring already says "Alpaca positions/
+orders are the source of truth").**
+1. `reconciler.py` `_heal_false_closes`: when "orphan" broker legs are
+   EXACTLY the two legs of a recently-closed DB row — both present, at the
+   row's recorded side AND quantity — that is broker-truth proof the close
+   never took effect. The row reverts to `open` (fictional `realized_pnl`
+   and `closed_at` cleared — the team's SQL, automated and evidence-
+   checked), and reconcile re-runs ONCE from fresh reads. This is not a
+   loosening: nothing passes that previously blocked without the DB being
+   first corrected to match the broker; any partial match (one leg gone,
+   side flipped, qty off — including two stacked false closes summing to
+   qty 2), any leftover orphan after the heal, and every other mismatch
+   class still blocks exactly as before, pinned by control tests. The
+   repaired position lands back under exit management — strictly safer
+   than the status quo (position live at broker, DB claiming profit,
+   whole book unmanaged).
+2. `db.py`: `get_recently_closed_spreads(days=10)` (closed rows only,
+   `rejected` excluded by construction, newest first) and
+   `reopen_spread(id)` (the exact repair statement from 09-23's SQL).
+3. `tests/test_reconciler_false_close_heal.py` (7 tests): the literal
+   row-35 shape heals and unblocks; no-matching-row / single-leg /
+   qty-mismatch / side-flip all still block with zero reopens; residual
+   orphans still block after a heal (single retry, no loop — and the
+   healed legs vanish from the reason while the genuine orphan stays);
+   two independent false closes both heal. The reconciler FakeDB in
+   `test_close_pending_truth.py` now asserts the heal NEVER fires in the
+   existing block scenarios. VERIFIED IN-SESSION: `python -m pytest
+   tests/ -q` → 181 passed; `py_compile` clean on every touched file.
+4. Interaction with tonight's gate, desk-verified: the DRY_RUN cycle runs
+   after hours, so it will HEAL ROW 35 AGAINST THE LIVE DB (the repair
+   the team was asked to run — expect "RECONCILE SELF-HEAL: spread id=35"
+   in the gate log), then skip all exit evaluation (`manage_open_spreads`
+   returns early when `market_open` is false, bot.py:351) — no DRY_RUN
+   mark-close can re-poison the row overnight. Striking the fictional
+   +$38 also self-corrects `recent_7d` as of tomorrow's read.
+
+**Watch tomorrow.** (1) Gate log tonight: the SELF-HEAL line, then NO
+reconcile block. (2) First live cycle: TLT id 35 profit target re-fires
+with an honest close — a real fill with real P&L (credit $74 vs a
+deep-OTM mark), or `pending_close` + next-cycle resolution; this is
+simultaneously the first live outing of BOTH 09-23 mechanisms.
+(3) Cycles should journal real decisions again — after two lost days the
+book is stale (5 spreads, expirations 09-28…10-09) and DTE-driven
+force-closes are approaching. (4) If a SELF-HEAL line appears on any row
+OTHER than 35, read it carefully — it should only ever name a row whose
+close order died unrecorded. (5) The unexplained +$49.05 cash move from
+09-23 is still unexplained; with cycles flowing again, check whether it
+recurs at the same clock time (interest hypothesis).
+
+**Proposals (not touched).** Tonight's heal removes only the false-close
+deadlock class; proposal (i) (manage broker-verified exits under any
+remaining reconcile block) still stands for every OTHER block cause and
+is still the team's call, now carrying two full unmanaged days of
+evidence. NEW (k): the team-action channel needs a louder path than this
+file — a dashboard banner or notification when `reconcile_block` streaks
+exceed N cycles; I don't touch the dashboard build. Prior (a)–(j) all
+still open.
+
 ## 2026-09-23 evening (reviewing trading day 2026-09-23 — red tape; a fictional close deadlocked the whole bot from 15:00Z. TEAM ACTION REQUIRED before tomorrow's open — see the SQL below)
 
 **The incident (class (c), order path — it owns the whole afternoon).**

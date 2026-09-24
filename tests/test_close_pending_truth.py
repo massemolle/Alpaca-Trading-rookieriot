@@ -259,6 +259,16 @@ def _reconciler_db(monkeypatch, *, open_rows=(), pending_close_rows=()):
                 return [dict(r) for r in pending_close_rows]
             return []
 
+        @staticmethod
+        def get_recently_closed_spreads(days=10):
+            return []
+
+        @staticmethod
+        def reopen_spread(spread_id):
+            raise AssertionError(
+                "false-close self-heal must not fire in these scenarios"
+            )
+
     monkeypatch.setattr(rec, "db", FakeDB)
     return rec
 

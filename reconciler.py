@@ -117,11 +117,76 @@ def _leg_consistency_issues(
     return issues
 
 
-def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
+def _legs_match_broker(row: dict[str, Any], by_symbol: dict[str, dict[str, Any]]) -> bool:
+    """Both legs of `row` present at the broker with the row's exact side
+    and quantity — the standard of proof the false-close self-heal requires."""
+    contracts = int(row.get("contracts") or 1)
+    for col, side in _LEG_ROLES.items():
+        symbol = row.get(col)
+        pos = by_symbol.get(symbol) if symbol else None
+        if pos is None:
+            return False
+        if str(pos.get("side") or "") != side:
+            return False
+        if abs(float(pos.get("qty") or 0)) != contracts:
+            return False
+    return True
+
+
+def _heal_false_closes(orphan: set[str], positions: list[dict[str, Any]]) -> int:
+    """Repair DB rows that claim 'closed' while the broker still holds BOTH
+    their legs at the row's exact side and quantity — proof the close never
+    took effect. 2026-09-23 (TLT id 35): a resting close order's mark was
+    booked as a fill, the day order expired at the bell, and the resulting
+    "orphan" legs deadlocked every subsequent cycle — entries AND all exit
+    management — until a manual row repair that never came.
+
+    The repair direction is always DB → broker: the row reverts to open, the
+    fictional realized P&L is cleared, and the manage loop re-runs the exit
+    honestly (the close-path fix of 09-23 then records only real fills).
+    This does not relax what counts as a mismatch: anything short of an
+    exact two-leg match — side flipped, qty off, one leg gone, or no
+    recently-closed row claiming the legs — heals nothing and still blocks.
+    """
+    try:
+        recent = db.get_recently_closed_spreads()
+    except Exception:
+        logger.exception("false-close self-heal skipped: closed rows unreadable")
+        return 0
+    by_symbol = {str(p.get("symbol") or ""): p for p in positions}
+    claimed: set[str] = set()
+    healed = 0
+    for row in recent:
+        short_sym, long_sym = row.get("short_symbol"), row.get("long_symbol")
+        if not short_sym or not long_sym:
+            continue
+        legs = {short_sym, long_sym}
+        if not legs <= orphan or legs & claimed:
+            continue
+        if not _legs_match_broker(row, by_symbol):
+            continue
+        db.reopen_spread(row["id"])
+        claimed |= legs
+        healed += 1
+        note = (
+            f"spread id={row['id']} {row.get('underlying')} was "
+            f"'{row.get('status')}' but broker still holds {short_sym}/"
+            f"{long_sym} at recorded side+qty — close never filled; row "
+            f"reverted to open, fictional realized_pnl cleared"
+        )
+        logger.warning("RECONCILE SELF-HEAL: %s", note)
+        print(f"RECONCILE SELF-HEAL: {note}")
+    return healed
+
+
+def reconcile(client, *, block_on_mismatch: bool = True, _allow_heal: bool = True) -> ReconcileResult:
     """Compare Alpaca option positions to DB open/pending spreads.
 
     - Legs in DB but not at broker → phantom local position (block).
-    - Legs at broker but not in DB → orphaned broker position (block).
+    - Legs at broker but not in DB → orphaned broker position (block),
+      unless a recently-closed row proves a false close (see
+      _heal_false_closes) — then the row is repaired toward broker truth
+      and the comparison re-runs once from fresh reads.
     Pending spreads (entry submitted, not yet filled) and pending_close
     spreads (close submitted, not yet filled) are in a known transitional
     state: their legs may legitimately be absent (pending) or still present
@@ -161,6 +226,13 @@ def reconcile(client, *, block_on_mismatch: bool = True) -> ReconcileResult:
 
     phantom = open_legs - broker_syms
     orphan = broker_syms - open_legs - pending_legs - pending_close_legs
+
+    if orphan and _allow_heal and _heal_false_closes(orphan, positions):
+        # A false close was repaired toward broker truth — re-run the whole
+        # comparison once from fresh reads. If the repair did not fully
+        # explain the divergence, the second pass blocks exactly as before
+        # (single retry, so a wrong heal can never loop).
+        return reconcile(client, block_on_mismatch=block_on_mismatch, _allow_heal=False)
 
     if phantom:
         reasons.append(f"DB-open legs missing at broker: {sorted(phantom)}")
