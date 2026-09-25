@@ -118,15 +118,30 @@ def should_close(
     credit_received: float,
     current_mark: float,
     is_credit_spread: bool = True,
+    short_leg_two_sided: bool = True,
 ) -> tuple[bool, str] | tuple[bool, None]:
     """`current_mark` is the current cost to close (debit to buy back the
     spread). Credit spreads profit as this shrinks toward zero.
-    """
+
+    `short_leg_two_sided` (2026-09-25): the mark is ask-based; when the
+    short leg's book has no bid (typical seconds after the open, or on
+    far-OTM strikes) the ask can be arbitrarily inflated and the mark is
+    not a price anyone would actually pay. Such a mark must not fire the
+    STOP — TLT id 35 was "stopped" at a $250 mark (true value ~$25) at
+    13:30:07Z and the bogus close order poisoned the book's state for the
+    whole session. The profit target stays live either way: an inflated
+    ask can only UNDERSTATE captured profit, never fake it. A genuine
+    stop-worthy short leg always has bids (real intrinsic value), so this
+    suppression can only delay a stop by one cycle on a book that is
+    still forming, not hide a real loss. Callers that cannot assess the
+    book (tests, lab) keep today's behavior via the default."""
     limits = config.risk
     profit_captured_pct = 1 - (current_mark / credit_received) if credit_received else 0
     if profit_captured_pct >= limits.profit_target_pct:
         return True, f"profit target hit: {profit_captured_pct:.0%} of max credit captured"
     if current_mark >= credit_received * limits.stop_loss_multiple:
+        if not short_leg_two_sided:
+            return False, None
         return True, (
             f"stop hit: cost to close (${current_mark:.2f}) reached "
             f"{limits.stop_loss_multiple}x credit received (${credit_received:.2f})"

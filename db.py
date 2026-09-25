@@ -171,6 +171,25 @@ def get_manageable_spreads() -> list[dict[str, Any]]:
         return list(cur.fetchall())
 
 
+def get_live_spreads() -> list[dict[str, Any]]:
+    """Every row whose position is (or may imminently be) live risk at the
+    broker: open, entry submitted but unconfirmed ('pending'), and close
+    submitted but unconfirmed ('pending_close' — the legs exist until the
+    broker says the close filled). 2026-09-25: two rows parked in
+    pending_close by resting close orders dropped out of every exposure,
+    concentration and budget read for the whole afternoon; the gates
+    approved new spreads against the understated book and the session
+    ended 9 live spreads against the concurrent cap. Exposure-side reads
+    must use this, not get_open_spreads."""
+    with _connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"""select * from {_schema()}.spreads
+                where status in ('open', 'pending', 'pending_close')
+                order by opened_at"""
+        )
+        return list(cur.fetchall())
+
+
 def get_recently_closed_spreads(days: int = 10) -> list[dict[str, Any]]:
     """Closed rows young enough to be candidates for the reconciler's
     false-close self-heal (2026-09-24). Excludes 'rejected' (entry never

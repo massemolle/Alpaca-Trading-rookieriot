@@ -2,7 +2,101 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
-## 2026-09-24 evening (reviewing trading day 2026-09-24 — the repair never ran; a full day deadlocked. Tonight the reconciler learns to run it itself)
+## 2026-09-25 evening (reviewing trading day 2026-09-25 — trading resumed; a 7-seconds-after-the-open garbage mark fired a fictional stop, and the in-flight closes it created vanished from every risk read. The book ended 9 live spreads against a cap of 8)
+
+**Verdicts on 09-24 watch items.** (1) The gate log shows exactly the
+predicted SELF-HEAL line for row 35 and no other; cycle 343 onward ran
+clean — the deadlock class is dead. (2) The TLT close DID re-fire at the
+first live cycle (13:30Z) and both 09-23 mechanisms worked as designed
+(`pending` → `pending_close` → resolver reverted the row to open when the
+day order expired at the bell; zero fictional P&L). But WHAT re-fired it
+is tonight's incident — see below. (3) Cycles journaled real decisions
+again: 3 opens (IWM 349, SPY 351, XLE 353), 8 abstentions with cited
+facts, 1 error (350). (4) The +$49.05 cash move did not recur.
+
+**The incident (class (c), one chain).** At 13:30:07Z — seven seconds
+after the open — `get_spread_mark` read TLT 260928C81 as no-bid × $2.50
+ask on the indicative feed: mark $250 for a spread genuinely worth ~$25.
+That cleared the 2× stop on a $74 credit, and the bot submitted a
+buy-to-close at limit debit **2.75** — a fictional stop, priced off an
+empty book. The order rested all day (as did a 14:30Z XLE profit-target
+close at 0.40 — Alpaca paper seems unable to fill mleg closes whose long
+leg has no bid; note that entries fill instantly while 0-for-3 closes
+have filled since 09-23). Knock-on: both rows sat in `pending_close` from
+13:30/14:30 to the bell, and **every** exposure, concentration and budget
+read used `get_open_spreads()` (status `'open'` only) — the two rows'
+very real broker legs vanished from the book every gate and the judge
+saw. Cycle 353's journal shows the LLM told "XLE 1 open spread/$413"
+while the broker held 2/$824; it "deliberately" stacked a third. The
+judge's cited `remaining_budget` ran 2 slots high all afternoon, and the
+session ended with **9 live spreads against the D21 cap of 8** — a risk
+cap breached by an accounting blind spot, with no gate ever saying no.
+
+**analyze-regret, as charged.** Ablation `recent_7d` (same clock): rule
++$28.97/close (49) vs LLM +$24.09 (11) vs random +$10.17 (15). Third
+consecutive rule>LLM read but the margin is ~$5 against a zero-slippage
+virtual arm — still not the decisive trigger, and today's judge evidence
+is actually GOOD: all four dropped-but-profitable menu rows (SPY +27.5,
++13.5, +10.5, IWM +0.5 — all <1-day open marks) were dropped on sound
+concentration reasoning, class (a). The GLD drops it kept refusing are
+all marked negative. No selection pattern; the weak link is unambiguously
+class (c) book-truth infrastructure, so the reasoner prompt is untouched.
+
+**Changes (one theme: decisions must see broker truth).**
+1. `db.get_live_spreads()` — status in (`open`,`pending`,`pending_close`)
+   — and every decision-path read now uses it: `find_candidates`'s
+   exposure/counts (the `*_OPEN_SPREADS`/`*_OPEN_MAX_LOSS` facts now say
+   "live"), `run_cycle`'s `remaining_budget`, `pretrade_gate`'s fresh
+   count, and the held-legs collision set (semantics unchanged there,
+   now one query). Pure tightening: counts can only grow. Logged as D22.
+2. Mark integrity: `executor_mcp.get_spread_mark_detail` returns
+   (mark, short_leg_two_sided); `risk_gate.should_close` only fires the
+   STOP when the short leg has a real bid. An ask-only book can fake a
+   stop but never hide one (a stop-worthy short always has intrinsic
+   value someone bids for), so a real stop is delayed at most one 30-min
+   cycle while the book forms; the profit target is live either way (an
+   inflated ask can only understate profit). `shadow_book.manage_open`
+   gets the same guard — a fake virtual stop at $250 would have poisoned
+   the ablation books' honesty too — and no longer stores one-sided
+   marks as outcomes.
+3. `tests/test_live_book_truth.py` (13 tests): the literal 13:30:07Z
+   book shape submits no close; a genuine two-sided 2× stop still does;
+   profit target unaffected; pending_close rows count toward cap and
+   concentration; the live-status set is pinned in SQL source. Existing
+   exit-path pins re-wired to `get_spread_mark_detail` (assertions
+   unchanged). **194 passed** (was 181), verified in-session.
+
+**Deliberately not changed.** (a) Reconciler, `spread_monitor`, snapshot
+counts, `portfolio_beta` keep their reads — the reconciler's open/
+pending_close distinction is load-bearing, and the monitor re-closing a
+`pending_close` row would double-submit. (b) Cycle 350's error — the LLM
+re-picked IWM 280/275 after 349 opened it, and the deterministic
+`client_order_id` correctly 422-blocked the duplicate — the idempotency
+backstop did its job; the clean fix (reject exact-duplicate candidates
+pre-LLM) is proposed, not coded. (c) `opened_this_cycle` now overlaps
+the live count for intracycle pending rows (as it always did for instant
+fills) — strictly conservative, left alone.
+
+**Watch tomorrow (Monday 09-28 is TLT 35's expiration).** (1) Force-close
+fires Monday (dte 0). If the 13:30Z book is again one-sided, the mark
+guard doesn't gate force-closes: with mark None the limit falls back to
+2× credit ($148); with a garbage mark it would again submit high — watch
+the limit price in the log. (2) Whether closes EVER fill: if Monday's
+force-close also rests all day, the "paper mleg closes with bid-less
+longs never fill" theory is confirmed and the exit path needs a team
+decision (see proposals). (3) The book is over cap at 9 — with the live
+count now honest, `remaining_budget` is 0 and no new spreads should open
+until closes reduce it; verify the journal shows that. (4) First
+two-sided TLT/XLE marks should re-fire honest profit-target closes.
+
+**Proposals (not touched, team's call).** (l) Close-order pricing: 1.1×
+ask-based mark rests forever on paper when the long leg is bid-less —
+consider pricing closes off the short leg only (buy back the short,
+let a worthless long ride to expiry) or a marketable limit; that's
+`executor_mcp` fill-path territory. (m) `emergency_flatten` reads
+`get_open_spreads() + pending` — it would MISS a `pending_close` row
+whose order dies after the flatten; it should read the live set too, but
+the file is out of my bounds. (n) Prior (i)/(k) still open.
 
 **Verdicts on 09-23 watch items.** (1) **The row-35 SQL did NOT run.** Every
 market-hours cycle today (325–341, all seventeen) reconcile-blocked on the

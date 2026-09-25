@@ -82,12 +82,12 @@ def _wire_exit_path(monkeypatch, close_result, mark=36.0):
     monkeypatch.setattr(risk_gate, "should_close", lambda **kw: (True, "profit target"))
 
     async def fake_mark(mcp, short_symbol, long_symbol):
-        return mark
+        return mark, True  # (mark, short leg two-sided)
 
     async def fake_close(mcp, **kwargs):
         return close_result
 
-    monkeypatch.setattr(executor_mcp, "get_spread_mark", fake_mark)
+    monkeypatch.setattr(executor_mcp, "get_spread_mark_detail", fake_mark)
     monkeypatch.setattr(executor_mcp, "close_spread", fake_close)
 
 

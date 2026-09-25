@@ -357,14 +357,14 @@ async def manage_open_spreads(
             continue
 
         try:
-            mark = await executor_mcp.get_spread_mark(
+            mark, short_two_sided = await executor_mcp.get_spread_mark_detail(
                 mcp, spread["short_symbol"], spread["long_symbol"]
             )
         except Exception:
             logger.exception("Failed to get mark for spread %s", spread["id"])
             if not force_close:
                 continue
-            mark = None
+            mark, short_two_sided = None, False
 
         if force_close:
             should_close, reason = True, force_reason
@@ -374,6 +374,7 @@ async def manage_open_spreads(
             should_close, reason = risk_gate.should_close(
                 credit_received=float(spread["credit_received"]),
                 current_mark=mark,
+                short_leg_two_sided=short_two_sided,
             )
         if not should_close:
             continue
@@ -451,10 +452,10 @@ def _book_context_facts(
     return [
         {"fact_id": f"{tkr}_OPEN_SPREADS", "value": open_spread_counts.get(tkr, 0),
          "as_of": as_of, "source": "db.open_spreads", "quality": "computed",
-         "derivation": "count of spreads already open on this underlying in the live book"},
+         "derivation": "count of live spreads on this underlying (open, or with an entry/close order still in flight)"},
         {"fact_id": f"{tkr}_OPEN_MAX_LOSS", "value": round(existing_exposure.get(tkr, 0.0), 2),
          "as_of": as_of, "source": "db.open_spreads", "quality": "computed",
-         "derivation": "sum of max_loss x contracts across those open spreads, in $"},
+         "derivation": "sum of max_loss x contracts across those live spreads, in $"},
     ]
 
 
@@ -490,7 +491,12 @@ async def find_candidates(
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}
     open_spread_counts: dict[str, int] = {}
-    for s in db.get_open_spreads():
+    # Live rows, not just status='open': a spread whose close order is still
+    # resting (pending_close) is risk the account carries RIGHT NOW. On
+    # 2026-09-25 two such rows vanished from these dicts all afternoon — the
+    # judge was told XLE held 1 spread/$413 while the broker held 2/$824 and
+    # deliberately stacked a third on the understated fact.
+    for s in db.get_live_spreads():
         underlying = s["underlying"]
         n = int(s.get("contracts") or 1)
         max_loss_total = float(s.get("max_loss", 0)) * n
@@ -504,11 +510,12 @@ async def find_candidates(
     # never SELL a held-long or BUY a held-short contract — Alpaca infers
     # close intent per leg and 422-rejects the whole order (cycle 266,
     # 2026-09-18: QQQ 700/695 built while spread id 42 was long the 700P).
-    # Wider than the exposure loop above on purpose: pending entries can
-    # fill any moment, and pending_close legs exist until the close fills.
+    # Pending entries can fill any moment, and pending_close legs exist
+    # until the close fills — the same live-book set the exposure loop
+    # above now uses (2026-09-25).
     held_long_symbols: set[str] = set()
     held_short_symbols: set[str] = set()
-    for s in db.get_manageable_spreads() + db.get_spreads_by_status("pending_close"):
+    for s in db.get_live_spreads():
         for key, held in (
             ("short_symbol", held_short_symbols),
             ("long_symbol", held_long_symbols),
@@ -712,7 +719,12 @@ async def run_cycle() -> None:
         await shadow_book.manage_open(mcp)
         await portfolio_beta.record_beta_weighted_delta(mcp)
 
-        open_spreads = db.get_open_spreads()
+        # Budget against the LIVE book (open + entry/close in flight): a
+        # pending_close row still holds its legs until the broker confirms
+        # the fill. 2026-09-25: two resting closes made this count read 2
+        # low for six hours and the concurrent cap was breached (9 live
+        # spreads at the bell) without any gate ever saying no.
+        open_spreads = db.get_live_spreads()
         remaining_budget = max(0, config.risk.max_concurrent_spreads - len(open_spreads))
 
         open_notes: list[str] = []

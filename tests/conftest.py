@@ -64,7 +64,9 @@ class FakeClient:
 
 @pytest.fixture
 def fake_db(monkeypatch):
-    """Patches pretrade_gate's db binding; returns the mutable open-spreads list."""
+    """Patches pretrade_gate's db binding; returns the mutable live-spreads
+    list (rows here count as live risk: open or entry/close in flight —
+    the gate reads get_live_spreads since 2026-09-25)."""
     import pretrade_gate
 
     open_spreads: list[dict] = []
@@ -72,6 +74,10 @@ def fake_db(monkeypatch):
     class _DB:
         @staticmethod
         def get_open_spreads():
+            return [s for s in open_spreads if s.get("status", "open") == "open"]
+
+        @staticmethod
+        def get_live_spreads():
             return list(open_spreads)
 
     monkeypatch.setattr(pretrade_gate, "db", _DB)

@@ -404,8 +404,20 @@ async def close_spread(
     )
 
 
-async def get_spread_mark(mcp: AlpacaMCP, short_symbol: str, long_symbol: str) -> float | None:
-    """Current cost to close (debit), dollars per contract, for risk_gate.should_close."""
+async def get_spread_mark_detail(
+    mcp: AlpacaMCP, short_symbol: str, long_symbol: str
+) -> tuple[float | None, bool]:
+    """(mark, short_leg_two_sided).
+
+    Mark = current cost to close (debit), dollars per contract, for
+    risk_gate.should_close. The flag is False when the short leg has no
+    (nonzero) bid: an ask-only book prices the mark off the ask alone,
+    which can be arbitrarily inflated — 2026-09-25 13:30:07Z, seconds
+    after the open, TLT 81C quoted no-bid x 2.50 and the $250 "mark" on a
+    spread genuinely worth ~$25 fired a fictional stop (limit debit 2.75
+    submitted, credit was $0.74). A short leg that is a REAL loss always
+    carries bids (it has intrinsic value someone will pay for), so a
+    bid-less book can fake a stop but never hide one."""
     result = await mcp.call(
         "get_option_snapshot",
         {"symbols": f"{short_symbol},{long_symbol}", "feed": "indicative"},
@@ -414,9 +426,17 @@ async def get_spread_mark(mcp: AlpacaMCP, short_symbol: str, long_symbol: str) -
     short_q = snap_by_symbol.get(short_symbol, {}).get("latestQuote", {})
     long_q = snap_by_symbol.get(long_symbol, {}).get("latestQuote", {})
     if not short_q or not long_q:
-        return None
+        return None, False
     short_ask = short_q.get("ap")
     long_bid = long_q.get("bp")
     if short_ask is None or long_bid is None:
-        return None
-    return round((float(short_ask) - float(long_bid)) * 100, 2)
+        return None, False
+    short_bid = short_q.get("bp")
+    two_sided = short_bid is not None and float(short_bid) > 0.0
+    return round((float(short_ask) - float(long_bid)) * 100, 2), two_sided
+
+
+async def get_spread_mark(mcp: AlpacaMCP, short_symbol: str, long_symbol: str) -> float | None:
+    """Current cost to close (debit), dollars per contract, for risk_gate.should_close."""
+    mark, _ = await get_spread_mark_detail(mcp, short_symbol, long_symbol)
+    return mark

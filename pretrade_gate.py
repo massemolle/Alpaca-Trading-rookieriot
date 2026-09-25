@@ -136,7 +136,11 @@ async def _pre_trade_check_inner(
     account = client.get_account()
     _, daily_pl_pct = _daily_pl(account)
     equity = float(account["equity"])
-    fresh_open = db.get_open_spreads()
+    # Live rows, not just status='open' — a pending_close spread's legs are
+    # still at the broker until the close fills (2026-09-25: two resting
+    # closes hid $824 of XLE exposure from this very read and a third XLE
+    # spread passed the gate).
+    fresh_open = db.get_live_spreads()
     open_count = len(fresh_open) + opened_this_cycle
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}

@@ -341,7 +341,7 @@ async def manage_open(mcp) -> None:
     try:
         for row in _get_open():
             try:
-                mark = await executor_mcp.get_spread_mark(
+                mark, two_sided = await executor_mcp.get_spread_mark_detail(
                     mcp, row["short_symbol"], row["long_symbol"]
                 )
             except Exception:
@@ -354,10 +354,21 @@ async def manage_open(mcp) -> None:
                 if force:
                     _close(row["id"], "closed_expiry", None)
                 continue
-            _mark(row["id"], mark)
+            # An ask-only (bid-less short) mark is as fictional for the
+            # virtual books as it is for the real one (2026-09-25: a $250
+            # at-open "mark" on a ~$25 spread) — don't store it as an
+            # outcome, and don't let it realize a fake virtual stop; the
+            # last honest mark stands until the book is two-sided again.
+            if two_sided:
+                _mark(row["id"], mark)
             close, _reason = risk_gate.should_close(
-                credit_received=float(row["credit_received"]), current_mark=mark
+                credit_received=float(row["credit_received"]), current_mark=mark,
+                short_leg_two_sided=two_sided,
             )
+            if force and not two_sided:
+                # Same rule as _mark above: never realize an ask-only mark.
+                _close(row["id"], "closed_expiry", None)
+                continue
             if close or force:
                 contracts = int(row.get("contracts") or 1)
                 realized = (float(row["credit_received"]) - mark) * contracts

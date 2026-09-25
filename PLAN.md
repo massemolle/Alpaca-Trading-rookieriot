@@ -271,6 +271,23 @@ divergence protocol as intended. Also rejected: 20-trades/day scalping
 (round-trip friction measured live at $4–8 on ~$50 credits = 8–16% per trip).
 Unchanged: 0.17Δ, 50% PT, 2× stop, 1 contract, all gates, trend filter, blackouts.
 
+## D22 — The book is what the broker holds: live-spread semantics (2026-09-25, nightly engineer)
+
+Every exposure/budget/concentration read (`find_candidates` facts, the
+`remaining_budget` fed to the judge, `pretrade_gate`) now uses
+`db.get_live_spreads()` — status in (`open`, `pending`, `pending_close`) —
+instead of `get_open_spreads()` (status `open` only). Evidence: on 09-25 two
+rows parked in `pending_close` by resting close orders vanished from every
+such read for six hours; the judge was told XLE held 1 spread/$413 while the
+broker held 2/$824 and stacked a third, and the session ended 9 live spreads
+against the D21 cap of 8. A position whose close order has not confirmed
+filled is still risk. This is a tightening: counts can only grow. Companion
+rule, same incident: an ask-only (bid-less short) mark can fake a stop but
+never hide one, so `should_close` only fires the STOP off a two-sided short
+leg (`get_spread_mark_detail`); profit target unchanged, real stops delayed
+at most one cycle while a book forms. Reconciler, spread_monitor, and
+emergency_flatten reads are deliberately untouched.
+
 ## Open questions
 
 - [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)
