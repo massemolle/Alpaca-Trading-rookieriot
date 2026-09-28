@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from typing import Any
 
 import db
@@ -133,6 +134,66 @@ def _legs_match_broker(row: dict[str, Any], by_symbol: dict[str, dict[str, Any]]
     return True
 
 
+def _expiration_date(row: dict[str, Any]) -> date | None:
+    exp = row.get("expiration")
+    if isinstance(exp, datetime):
+        return exp.date()
+    if isinstance(exp, date):
+        return exp
+    try:
+        return datetime.strptime(str(exp), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _settle_expired_rows(
+    open_spreads: list[dict[str, Any]],
+    broker_syms: set[str],
+) -> list[dict[str, Any]]:
+    """Expired contracts are a settlement event, not a divergence.
+
+    2026-09-28 (TLT id 35, second act): its 13:30Z force-close rested all
+    day at the broker, the day order died at the bell, and the resolver
+    correctly flipped the row back to 'open' — on the row's own expiration
+    date. Overnight the OCC removed the legs, so the next morning's
+    reconcile would read the row as phantom ("DB-open legs missing at
+    broker") and fail-close every cycle: the 09-24 deadlock again, in the
+    one direction _heal_false_closes cannot repair (it needs legs PRESENT).
+
+    A row settles here only under proof: expiration STRICTLY before today
+    (UTC) — the contracts can no longer exist or trade — AND neither leg
+    at the broker. It becomes closed_expiry with P&L None (settlement cash
+    is not knowable from here; same convention as the manage-loop's expiry
+    branch). Expiring today, any leg still present, or an unreadable
+    expiration: untouched, and any divergence blocks exactly as before.
+    """
+    today = datetime.now(timezone.utc).date()
+    remaining: list[dict[str, Any]] = []
+    for row in open_spreads:
+        exp = _expiration_date(row)
+        legs = {row.get("short_symbol"), row.get("long_symbol")} - {None, ""}
+        if exp is not None and exp < today and legs and not (legs & broker_syms):
+            try:
+                db.record_spread_close(row["id"], "closed_expiry", None)
+            except Exception:
+                logger.exception(
+                    "expiry settlement failed for spread %s — leaving row for the block",
+                    row.get("id"),
+                )
+                remaining.append(row)
+                continue
+            note = (
+                f"spread id={row['id']} {row.get('underlying')} expired "
+                f"{exp} and holds no broker legs — settled closed_expiry "
+                f"(P&L unknown, backfill from broker statement if needed)"
+            )
+            logger.warning("RECONCILE EXPIRY SETTLE: %s", note)
+            print(f"RECONCILE EXPIRY SETTLE: {note}")
+        else:
+            remaining.append(row)
+    return remaining
+
+
 def _heal_false_closes(orphan: set[str], positions: list[dict[str, Any]]) -> int:
     """Repair DB rows that claim 'closed' while the broker still holds BOTH
     their legs at the row's exact side and quantity — proof the close never
@@ -215,6 +276,10 @@ def reconcile(client, *, block_on_mismatch: bool = True, _allow_heal: bool = Tru
         return ReconcileResult(ok=False, reasons=[f"local book unavailable: {exc}"])
 
     broker_syms = _option_symbols_from_positions(positions)
+    # Settle provably-expired rows before the phantom check: their legs are
+    # gone from the broker because the contracts ceased to exist, not
+    # because the book diverged (2026-09-28, TLT id 35).
+    open_spreads = _settle_expired_rows(open_spreads, broker_syms)
     # Pending rows are expected not to have broker positions yet — exclude
     # their legs from the "phantom DB" check. Pending-close rows are the
     # mirror (2026-09-23, TLT id 35): their legs are expected to STILL be

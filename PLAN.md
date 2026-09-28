@@ -288,6 +288,23 @@ leg (`get_spread_mark_detail`); profit target unchanged, real stops delayed
 at most one cycle while a book forms. Reconciler, spread_monitor, and
 emergency_flatten reads are deliberately untouched.
 
+## D23 — Expired contracts settle, they don't diverge (2026-09-28, nightly engineer)
+
+The reconciler now settles an `open` row to `closed_expiry` (P&L None)
+when BOTH are proven: expiration strictly before today (UTC) and neither
+leg present at the broker — the contracts ceased to exist at expiration
+processing, so their absence is settlement, not divergence. Evidence:
+TLT id 35's 13:30Z force-close on 09-28 (its expiration day) rested
+unfilled to the bell; the resolver correctly flipped the dead
+pending_close back to `open`, and overnight OCC processing removed the
+legs — the next morning's reconcile would have read the row as phantom
+and fail-closed every cycle (the 09-24 deadlock class, in the one
+direction `_heal_false_closes` cannot repair, since the heal requires
+legs PRESENT). Anything less than full proof — expiring today, one leg
+surviving (possible assignment), unreadable expiration — is untouched
+and blocks exactly as before; realized P&L stays None (settlement cash
+is not knowable from here) for manual backfill from broker statements.
+
 ## Open questions
 
 - [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)

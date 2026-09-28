@@ -2,6 +2,66 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-28 evening (reviewing trading day 2026-09-28 — D22 held the line all day; TLT id 35 reached its expiration with its close still resting, and tomorrow's first reconcile would have deadlocked on the expired legs)
+
+**Verdicts on 09-25 watch items.** (1) TLT 35's force-close fired exactly
+as predicted at 13:30:07Z (limit debit 0.03) — and rested unfilled to the
+bell like every mleg close before it; the day order died, the resolver
+correctly flipped the row back to `open`. That correct behavior is
+tonight's incident: see below. (2) Close fills: partly resolved — the
+15:00Z closes for QQQ 53 (-$88) and SPY 55 (-$54) DID fill, the first
+mleg closes to fill since 09-23; the 0.03 debit on a worthless expiring
+spread and a 15:30Z XLE close did not. Proposal (l) (marketable close
+limits priced off the short leg) stays open but is less urgent. (3)
+Budget honesty verified: cycles 361–363 journaled "9 open, 0 remaining"
+— D22's live count kept the over-cap book frozen until real fills
+brought it to 8, then the judge got exactly one slot. No cap breach.
+
+**The day.** Book at/over cap most of the session, so the judge saw 5
+slates and spent its one slot once: GLD bear call at 17:01Z (cycle 368),
+on a day GLD gapped -3.46% and closed -3.93% — directionally right, but
+the entry day-order expired unfilled at the bell (limit credit 0.51;
+row 57 correctly marked `rejected`, no position). Net: zero new
+positions, two stop closes, equity -0.33% on the day.
+
+**analyze-regret, as charged.** Ablation `recent_7d` (same clock): LLM
++$24.18/close (11) vs random +$18.43 (14) vs rule +$11.24 (58) — the
+first LLM>rule read after three straight rule>LLM; no trigger either
+direction. Menu regret is empty of actual regret: all 11 of today's
+dropped candidates mark negative or noise (best: TLT +$2), so every
+abstention (364–367) classifies (a) — sound reasoning, vindicated marks.
+The one taken candidate (GLD 368) never filled. No (b)/(c) selection
+pattern; the weak link is again class (c) book-truth infrastructure.
+
+**Change made (one theme, D23): expired contracts settle, they don't
+diverge.** TLT 35 ends today `open` with expiration 2026-09-28 and a
+dead close order; overnight the OCC removes its legs. Tomorrow's first
+`reconcile()` would read "DB-open legs missing at broker" and fail-close
+every cycle — entries AND exits — until a manual repair: the 09-24
+deadlock again, in the one direction `_heal_false_closes` cannot fix
+(it needs legs present). New `_settle_expired_rows` in `reconciler.py`
+runs before the phantom check: a row settles to `closed_expiry` (P&L
+None) only with proof — expiration strictly past (UTC) AND both legs
+gone. Expiring today, one leg surviving (assignment risk), or an
+unreadable date: untouched, blocks as before. Not a loosening: it
+removes one provably-false positive from the block condition and frees
+the phantom slot the zombie row would have held against the cap.
+`tests/test_reconciler_expiry_settlement.py` (9 tests) pins the
+morning-after shape and every no-settle edge; suite 203 passed.
+
+**Watch tomorrow.** (1) The 13:00Z cycle log should show exactly one
+`RECONCILE EXPIRY SETTLE` line for id 35, then `Reconciliation OK` — if
+it instead blocks, the broker kept a leg (possible assignment; human
+look required). (2) TLT 35's economic result was +$74 (expired OTM,
+short 81C vs 78.63 close) but is recorded as P&L None — ablation
+`llm_real` undercounts by that much until backfilled; proposal (n):
+backfill closed_expiry P&L from broker statements, team's call. (3) GLD
+368's unfilled entry means the judge's only pick this week cost nothing
+but earned nothing; if entry day-orders start expiring regularly at
+17:00Z+ opens, revisit entry limit pricing (executor territory —
+proposal, not an edit). (4) Rule-vs-LLM flipped LLM-positive this week;
+keep ignoring single-week noise either way.
+
 ## 2026-09-25 evening (reviewing trading day 2026-09-25 — trading resumed; a 7-seconds-after-the-open garbage mark fired a fictional stop, and the in-flight closes it created vanished from every risk read. The book ended 9 live spreads against a cap of 8)
 
 **Verdicts on 09-24 watch items.** (1) The gate log shows exactly the
