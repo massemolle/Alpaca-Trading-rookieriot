@@ -266,6 +266,19 @@ def ablation_totals(
     closed_at within the last recent_days — to every arm, so it is
     regime-fair by construction; rows closed without a closed_at (legacy)
     count all-time but never recent.
+
+    expiry_unbooked_*: closed_expiry rows with realized_pnl None — closes
+    settled without a broker fill, so no P&L was ever booked. These are
+    NOT in closed_n/realized totals, and the censoring is asymmetric by
+    mechanism: the real book's far-OTM winners can't fill mleg closes on
+    quote-dead legs (0-for-7 since 09-23) and now ride to expiry
+    settlement (D23), while its losers DO fill (near-money legs stay
+    quoted, stops execute) and the virtual arms realize winners at mark
+    with no fill needed. Left invisible, llm_real's realized totals keep
+    every loss and drop expiry wins (TLT 35's +$74 on 09-29 was the
+    first). expiry_unbooked_credit_usd is the ceiling of the missing
+    P&L — exact when the spread expired fully OTM, which is what riding
+    a winner to expiry means in practice.
     """
     cutoff = (today or date.today()) - timedelta(days=recent_days)
     recent_key = f"recent_{recent_days}d"
@@ -279,9 +292,19 @@ def ablation_totals(
             "clock window for every arm, so it is regime-fair). Use these for "
             "the LLM-vs-rule-vs-random ablation — all-time for lifetime, "
             f"{recent_key} for the current judge; the row lists above are "
-            "opened_at-windowed per book and not comparable across arms."
+            "opened_at-windowed per book and not comparable across arms. "
+            "expiry_unbooked_* = closed_expiry rows whose P&L was never "
+            "booked (settled, no fill) — NOT in the realized totals; the "
+            "credit sum is the ceiling of what the arm's totals are "
+            "missing (exact for spreads that expired fully OTM). llm_real "
+            "accumulates these on quote-dead winners, so read its realized "
+            "totals alongside this column before comparing arms."
         ),
     }
+
+    def _credit(r: dict) -> float:
+        return float(r.get("credit_received") or 0) * int(r.get("contracts") or 1)
+
     for name, rows in arms.items():
         closed = [
             r for r in rows
@@ -293,15 +316,27 @@ def ablation_totals(
             float(r["realized_pnl"]) for r in closed
             if r.get("closed_at") is not None and _to_date(r["closed_at"]) >= cutoff
         ]
+        unbooked = [
+            r for r in rows
+            if r.get("status") == "closed_expiry" and r.get("realized_pnl") is None
+        ]
+        unbooked_recent = [
+            r for r in unbooked
+            if r.get("closed_at") is not None and _to_date(r["closed_at"]) >= cutoff
+        ]
         out[name] = {
             "closed_n": len(pnls),
             "realized_total_usd": round(sum(pnls), 2),
             "avg_per_closed_usd": round(sum(pnls) / len(pnls), 2) if pnls else None,
             "open_n": sum(1 for r in rows if r.get("status") == "open"),
+            "expiry_unbooked_n": len(unbooked),
+            "expiry_unbooked_credit_usd": round(sum(_credit(r) for r in unbooked), 2),
             recent_key: {
                 "closed_n": len(recent),
                 "realized_total_usd": round(sum(recent), 2),
                 "avg_per_closed_usd": round(sum(recent) / len(recent), 2) if recent else None,
+                "expiry_unbooked_n": len(unbooked_recent),
+                "expiry_unbooked_credit_usd": round(sum(_credit(r) for r in unbooked_recent), 2),
             },
         }
     return out

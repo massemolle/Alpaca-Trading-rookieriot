@@ -205,15 +205,26 @@ def test_ablation_totals_closed_only_and_per_arm():
     t = shadow_book.ablation_totals(real, shadow, today=date(2026, 9, 22))
     assert t["llm_real"] == {"closed_n": 2, "realized_total_usd": -80.0,
                              "avg_per_closed_usd": -40.0, "open_n": 1,
+                             "expiry_unbooked_n": 0, "expiry_unbooked_credit_usd": 0,
                              "recent_7d": {"closed_n": 1, "realized_total_usd": 50.0,
-                                           "avg_per_closed_usd": 50.0}}
+                                           "avg_per_closed_usd": 50.0,
+                                           "expiry_unbooked_n": 0,
+                                           "expiry_unbooked_credit_usd": 0}}
     assert t["shadow"] == {"closed_n": 2, "realized_total_usd": -68.0,
                            "avg_per_closed_usd": -34.0, "open_n": 1,
+                           "expiry_unbooked_n": 0, "expiry_unbooked_credit_usd": 0,
                            "recent_7d": {"closed_n": 1, "realized_total_usd": 40.0,
-                                         "avg_per_closed_usd": 40.0}}
+                                         "avg_per_closed_usd": 40.0,
+                                         "expiry_unbooked_n": 0,
+                                         "expiry_unbooked_credit_usd": 0}}
+    # closed_expiry WITH a booked P&L stays an ordinary close (virtual books
+    # can realize expiry economics numerically) — unbooked only counts None.
     assert t["random"]["closed_n"] == 2 and t["random"]["realized_total_usd"] == 13.5
+    assert t["random"]["expiry_unbooked_n"] == 0
     assert t["random"]["recent_7d"] == {"closed_n": 1, "realized_total_usd": 23.0,
-                                        "avg_per_closed_usd": 23.0}
+                                        "avg_per_closed_usd": 23.0,
+                                        "expiry_unbooked_n": 0,
+                                        "expiry_unbooked_credit_usd": 0}
 
 
 def test_ablation_totals_recent_window_is_same_clock_for_every_arm():
@@ -234,8 +245,45 @@ def test_ablation_totals_empty_arm_has_no_avg():
     for arm in ("llm_real", "shadow", "random"):
         assert t[arm] == {"closed_n": 0, "realized_total_usd": 0,
                           "avg_per_closed_usd": None, "open_n": 0,
+                          "expiry_unbooked_n": 0, "expiry_unbooked_credit_usd": 0,
                           "recent_7d": {"closed_n": 0, "realized_total_usd": 0,
-                                        "avg_per_closed_usd": None}}
+                                        "avg_per_closed_usd": None,
+                                        "expiry_unbooked_n": 0,
+                                        "expiry_unbooked_credit_usd": 0}}
+
+
+def test_ablation_totals_expiry_unbooked_censoring_is_visible():
+    # The 09-29 shape: TLT id 35 settled closed_expiry with P&L None (D23) —
+    # its +$74 credit vanished from every realized total. The instrument must
+    # now show what the totals are missing: count and credit ceiling, all-time
+    # and inside the same recent clock window, without ever polluting
+    # closed_n / realized_total (that would book unproven P&L as real).
+    real = [
+        # settled inside the window; numeric-as-string credit (psycopg2)
+        {"status": "closed_expiry", "realized_pnl": None,
+         "closed_at": "2026-09-29 13:00:04+00:00",
+         "credit_received": "74.0", "contracts": 1},
+        # legacy settle without closed_at: censored all-time, never recent;
+        # contracts multiply the ceiling
+        {"status": "closed_expiry", "realized_pnl": None, "closed_at": None,
+         "credit_received": 30.0, "contracts": 2},
+        # a real filled close is untouched by the new column
+        {"status": "closed_profit", "realized_pnl": 54.0,
+         "closed_at": "2026-09-29 15:00:10+00:00",
+         "credit_received": "92.0", "contracts": 1},
+        # rows fed without the credit columns must not crash (older callers)
+        {"status": "closed_expiry", "realized_pnl": None,
+         "closed_at": "2026-09-28 20:30:00+00:00"},
+    ]
+    t = shadow_book.ablation_totals(real, [], today=date(2026, 9, 29))
+    arm = t["llm_real"]
+    assert arm["closed_n"] == 1 and arm["realized_total_usd"] == 54.0
+    assert arm["expiry_unbooked_n"] == 3
+    assert arm["expiry_unbooked_credit_usd"] == 134.0  # 74 + 30*2 + 0
+    assert arm["recent_7d"]["closed_n"] == 1
+    assert arm["recent_7d"]["expiry_unbooked_n"] == 2  # legacy row has no clock
+    assert arm["recent_7d"]["expiry_unbooked_credit_usd"] == 74.0
+    assert "expiry_unbooked" in t["note"]
 
 
 def test_resolved_dropped_cycles_filters_and_caps():

@@ -2,6 +2,103 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-29 evening (reviewing trading day 2026-09-29 — D23's first live outing was textbook; the exit-fill mechanism is finally nailed down, and it quietly biases the ablation instrument itself)
+
+**Verdicts on 09-28 watch items.** (1) The 13:00Z log shows exactly one
+`RECONCILE EXPIRY SETTLE: spread id=35` line, then `Reconciliation OK` —
+D23 fired once, correctly, and every one of today's 15 market-hours
+cycles ran clean. The morning-after deadlock class is dead on its first
+live test. (2) TLT 35's +$74 economic result is indeed recorded as P&L
+None — that undercount became tonight's theme (below). (3) No repeat of
+the unfilled 17:00Z entry: all three of today's entry orders filled
+within a second of submission (13:31, 15:01, 15:31Z). Entry pricing
+needs no look yet. (4) Rule-vs-LLM: second consecutive LLM-positive
+`recent_7d` read — still single-week noise, still ignored.
+
+**The day.** Quiet tape (SPY −0.15%, biggest universe move GLD +1.33%).
+The judge spent its slots early and then held: GLD 395/400 bear call
+(c378, credit $51), TLT 79/84 (c381, $44), and a deliberate second TLT
+78/83 (c382, $87 — "standout, not slate-filling", journaled as such),
+then ten straight abstentions citing the raised bar for the last slot,
+with `remaining_budget` honestly at 1 all afternoon. Exits: XLK 185/180
+hit its profit target and FILLED (+$54); IWM 280/275 hit its stop and
+FILLED (−$115); two XLE profit-target closes (limits 0.19 and 0.39,
+14:00Z) rested to the bell, died as day orders, and the resolver
+correctly reverted both rows to `open`. Realized −$61, equity −0.03%,
+book 7/8.
+
+**analyze-regret, as charged.** Ablation `recent_7d` (same clock): LLM
+−$5.5/close (8) vs random −$11.04 (10) vs rule −$29.06 (35) — the rule's
+clone-stacking is now losing to random on the week. No trigger. Menu
+regret is empty: all 16 dropped candidates mark negative or noise (best:
+SPY +$2), so every abstention classifies (a) — the TLT triple-stack
+refusals (c383–c390) all read sound against marks. No (b)/(c) selection
+pattern; the judge is healthy. The weak link is again class (c)
+infrastructure, and tonight the mechanism finally resolved:
+
+**The finding — what fills and what rests, settled.** It was never the
+limit price. A generous 2.75 debit limit rested all day (TLT 81/86,
+09-25) while 0.27–0.29 limits filled instantly (XLE 65/70, 09-21). The
+differentiator across all 11 mleg closes since 09-21: every close that
+RESTED (0-for-7 since 09-23: TLT 81/86 ×3, XLE 63.5/68.5 ×3, XLE 63/68
+×1) had a deep-OTM leg whose quotes had evaporated; every close that
+FILLED had all legs still quoted. Alpaca paper appears unable to fill an
+mleg order containing a quote-dead leg at ANY price. Entry gating cannot
+prevent it — the long legs passed the two-sided 25%-spread gate at entry
+and went quote-dead as XLE fell ~4% under them. The moderating symmetry:
+a stop-worthy spread is near the money, where quotes exist, so stops DO
+fill when they matter (IWM today; QQQ/SPY 09-28) — this is a
+profit-realization and slot-occupancy defect, not runaway risk. But the
+knock-on is insidious: far-OTM winners now ride to expiry and D23
+settles them `closed_expiry` P&L None, so `llm_real`'s realized totals
+keep every loss (stops fill) and silently drop expiry wins (TLT 35's
++$74 was the first; three XLE spreads are queued behind it). The
+tune-reasoner trigger would be reading an instrument biased against the
+judge.
+
+**Change (one theme: the ablation must show its censoring; no trading
+path touched).** `shadow_book.ablation_totals` now emits per arm —
+all-time and inside `recent_7d` — `expiry_unbooked_n` and
+`expiry_unbooked_credit_usd`: closed_expiry rows with no booked P&L
+(count, and the credit ceiling of what the realized totals are missing —
+exact when the spread expired fully OTM, which is what riding a winner
+to expiry means). They never pollute `closed_n`/`realized_total` (that
+would book unproven P&L as real); the note field explains the asymmetry.
+`evening_context.py` feeds the two extra columns. Tests: the two
+full-shape ablation pins updated, plus
+`test_ablation_totals_expiry_unbooked_censoring_is_visible` (the literal
+TLT-35 shape, contracts multiplier, string coercion, legacy no-clock
+row, missing-column tolerance). **204 passed** in-session; `py_compile`
+clean on all three touched files.
+
+**Watch tomorrow.** (1) Tomorrow's `ablation_totals` should show
+llm_real `expiry_unbooked_n: 1, expiry_unbooked_credit_usd: 74.0` — the
+first live read of the new column. (2) XLE 63.5/68.5 expires 10-02: its
+profit-target close will retry and rest daily, then the DTE force-close
+will also rest, then Monday 10-05's first reconcile should EXPIRY-SETTLE
+it — the second D23 firing, and expiry_unbooked grows by its credit.
+Same script for XLE 63/68 (exp 10-05) two days later. (3) The TLT
+double-stack: 79/84 + 78/83 bear calls, $870 combined max loss, short
+strikes at/barely above TLT's 78.24 close, on a name at RSI ~14 — a
+bond bounce hits both at once. Their legs are near-money, so stops
+should actually fill; watch that they do. (4) GLD 395/400 after GLD
++1.33%: 3.1% of headroom left.
+
+**Proposals (not touched, team's call).** (l), ESCALATED with tonight's
+mechanism evidence: close-limit pricing can never fix quote-dead legs
+(the 2.75 exhibit); the only realizing exit is a single-leg buy-to-close
+of the SHORT leg (single-leg orders demonstrably fill on paper), letting
+the worthless long ride to expiry — order-shape work in
+`executor_mcp.py`'s fill path, out of my bounds. (n), now
+instrumented: the censored column makes the undercount visible but not
+repaired; backfill from broker statements, or a provable settle-time
+booking rule in the reconciler (both legs gone + no equity position in
+the underlying + short strike clear of the expiry-day close ⇒ P&L =
+credit), team's call. Skill wording: `analyze-regret` step 2 should say
+to read `expiry_unbooked_*` alongside the realized totals before
+comparing arms (`.claude/` writes are blocked for me). Prior (i)/(k)
+still open.
+
 ## 2026-09-28 evening (reviewing trading day 2026-09-28 — D22 held the line all day; TLT id 35 reached its expiration with its close still resting, and tomorrow's first reconcile would have deadlocked on the expired legs)
 
 **Verdicts on 09-25 watch items.** (1) TLT 35's force-close fired exactly
