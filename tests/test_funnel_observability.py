@@ -29,7 +29,10 @@ class FakeScreeningClient:
     def get_latest_quote(self, symbol):
         if symbol in self.quote_fails:
             raise RuntimeError("quote unavailable")
-        return self.quotes.get(symbol, {"spread_pct": 0.01})
+        return self.quotes.get(
+            symbol,
+            {"bid_price": 99.99, "ask_price": 100.01, "spread_pct": 0.01},
+        )
 
 
 def _snap(price: float, volume: int = 5_000_000, atr: float | None = None) -> dict:

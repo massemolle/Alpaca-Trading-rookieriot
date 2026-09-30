@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from alpaca_client import AlpacaClient
+from alpaca_client import AlpacaClient, two_sided_mid
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,16 @@ def _passes_filters(
     volume = snapshot.get("daily_volume")
     if volume is None or volume < sf.min_avg_volume:
         return None, f"volume {volume} below min {sf.min_avg_volume}"
+
+    # A one-sided quote (zero/missing bid or ask) is the WIDEST possible
+    # book, but get_latest_quote maps it to spread_pct 0.0 — which would
+    # pass this filter as "infinitely tight". Reject it outright (2026-09-30,
+    # same defect class as the half-price spy_price snapshots).
+    if two_sided_mid(quote) is None:
+        return None, (
+            f"one-sided quote (bid {quote.get('bid_price')}, "
+            f"ask {quote.get('ask_price')})"
+        )
 
     spread_pct = quote.get("spread_pct", 0.0)
     if spread_pct > sf.max_spread_pct:

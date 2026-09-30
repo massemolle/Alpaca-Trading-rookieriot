@@ -2,6 +2,107 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-09-30 evening (reviewing trading day 2026-09-30 — a quiet, healthy day; the new censoring column went live on schedule, and the SPY benchmark recorded half the real price after the close)
+
+**Verdicts on 09-29 watch items.** (1) CONFIRMED: `ablation_totals` shows
+llm_real `expiry_unbooked_n: 1, expiry_unbooked_credit_usd: 74.0` in both
+all-time and `recent_7d` — the censoring column's first live read, exactly
+as predicted. (2) The XLE script ran to the letter: both profit-target
+closes (63.5/68.5 at 14:00Z limit, 63/68 at 14:01Z) went `pending`, sat as
+the reconciler's "2 open orders" all afternoon, died at the bell, and the
+resolver reverted both rows to `open` at 20:30Z. D23 settlement expected
+Monday 10-05 for both. (3) TLT double-stack: no bounce (TLT −0.51% to
+77.84) — but the 78C short is now a hair OTM; stops-that-fill get their
+test on the first real bounce, not today. (4) GLD 395/400 fine (GLD
+−0.54%). Bonus: SPY id 49's DTE force-close (13:30:07Z, limit 0.56)
+FILLED at $51 debit → honest +$17, more evidence that near-money legs
+fill and only quote-dead legs rest. (Note its status is `closed_expiry`
+with booked P&L — bot.py labels filled force-closes that way; it does
+NOT count as expiry_unbooked since P&L is present. A naming wart, not
+a defect.)
+
+**The day.** Flat tape (SPY −0.27%, XLF −1.17% the biggest universe
+move). 15 market-hours cycles: one open — QQQ 725/720 bull put at c402
+($72 credit, ~17% R/R, on a then-clean QQQ book, journaled as the slate's
+standout — and it re-picked the same spread it had refused at c400 when
+the book was 2-slots-free, bar-raising working as designed) — and eleven
+abstentions, every one refusing to stack a third TLT (strength ~0.5 all
+day, but 2 open TLT spreads/$870 and ~4–10% R/R) or a fourth XLE.
+Realized: +$17 (id 49 above). Equity +0.05%, book back to 7/8 at the
+bell after the XLE reverts.
+
+**analyze-regret, as charged.** Step 2 from `ablation_totals`
+`recent_7d`: LLM −$25.17/close (6) vs rule −$24.55 (38) vs random −$20.13
+(11) — parity within noise on a losing week for every arm, and the LLM
+row is the one carrying +$74 of censored expiry credit (booked, it would
+lead). No trigger either direction; first week the new column matters and
+it already changes the reading. Step 3: menu regret is EMPTY of regret —
+all 6 of today's dropped candidates mark negative (best −$1, worst
+−$54.5), so every abstention classifies (a); the refused TLT third-stack
+reads sound against marks. Tenth consecutive judge-healthy session. The
+weak link is again class (c) infrastructure, and today it was in the
+SCIENCE layer:
+
+**The finding — a one-sided quote became a benchmark price.** Snapshots
+407/408 (20:00/20:30Z, after the 4pm close) recorded `spy_price` 381.19
+against a 762.34 SPY close — exactly (0 + 762.38)/2: the bid evaporated
+at the bell and `benchmark.spy_mid`'s raw (ask+bid)/2 halved the price.
+That poisons the dashboard's "skill vs market" overlay (the judging
+artifact) with a fake −50% market crash at every close where the bid
+dies. Desk-tracing the pattern found the same defect class at two
+trading-path sites that have simply never fired on liquid RTH quotes:
+`find_candidates` feeds the same raw mid as the SPOT for strike
+selection, and `get_latest_quote` maps a zero bid to `spread_pct 0.0`,
+which the screening width filter reads as infinitely TIGHT — a
+one-sided book is the widest market there is, and it would have passed
+the filter designed to reject width. This is the equity-quote twin of
+the 09-25 option-mark incident (the $250 fictional stop), same rule:
+a one-sided quote is missing data, never a price.
+
+**Change (one theme: one-sided quotes never become prices; all three
+sites tightened, no risk limit touched).** New
+`alpaca_client.two_sided_mid(quote)` — returns the mid only when BOTH
+sides are live (>0), else None; the single definition of quote validity.
+(1) `benchmark.spy_mid` uses it: one-sided → log + None (snapshot
+proceeds without a benchmark point — a gap beats a lie; None was already
+its documented failure value, so the dashboard needs nothing). (2)
+`bot.find_candidates`: one-sided underlying → skip the ticker this cycle
+with a journaled `spread_builder` gate rejection ("one-sided underlying
+quote"), fail-closed. (3) `screening/filters._passes_filters`: rejects
+one-sided quotes outright before the width check, with bid/ask in the
+reason. `tests/test_one_sided_quote_guard.py` (10 tests) pins the
+literal 381.19 shape (bid-less mid must be None, not half-price), the
+ask-less mirror, malformed/missing sides, string coercion, spy_mid
+rounding/failure paths, and both screening outcomes; the
+funnel-observability fake quote gained real bid/ask. **214 passed**
+in-session (was 204), `py_compile` clean on all six touched files.
+
+**Watch tomorrow.** (1) The 20:00/20:30Z snapshots should show
+`spy_price: null` (or a real ~760s price if the book is two-sided) —
+never a half-price again; the team may want to null out historical
+381.19-shaped rows in `account_snapshots` for the demo chart (SQL
+one-liner, their call — I don't touch the DB). (2) A "one-sided
+underlying quote" line in bot.log or journal would be the trading-path
+guard's first live firing — read it; during RTH on these ETFs it should
+be rare-to-never, and frequent firings would mean a feed problem, not a
+market one. (3) XLE 63.5/68.5 expires 10-02: close retries will rest
+again Thu/Fri, then Monday's first reconcile should D23-settle it and
+`expiry_unbooked_credit_usd` grows to $149. (4) TLT 78C short is nearly
+ATM — the double-stack's stops-fill hypothesis likely gets tested on
+any bounce.
+
+**Proposals (not touched, team's call).** (l) single-leg buy-to-close
+for quote-dead winners: unchanged, still the only realizing exit —
+today's id-49 fill is one more data point that the mechanism is leg
+quote-death, not pricing. (n) expiry P&L backfill: now that
+force-closes book honestly when they fill (id 49 +$17), the unbooked
+set stays small and enumerable — the broker-statement backfill remains
+the clean fix. NEW (o): filled DTE force-closes are recorded
+`closed_expiry` (bot.py:420) — consider a distinct `closed_force`
+status so "expired" vs "closed at a real fill price" stay separable in
+analysis; cosmetic, but it cost desk-time tonight. Prior (i)/(k) still
+open.
+
 ## 2026-09-29 evening (reviewing trading day 2026-09-29 — D23's first live outing was textbook; the exit-fill mechanism is finally nailed down, and it quietly biases the ablation instrument itself)
 
 **Verdicts on 09-28 watch items.** (1) The 13:00Z log shows exactly one

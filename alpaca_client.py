@@ -32,6 +32,28 @@ MAX_RETRIES = 5
 RETRY_BACKOFF = 2.0
 
 
+def two_sided_mid(quote: dict[str, Any] | None) -> float | None:
+    """Midpoint of a quote dict, or None unless BOTH sides are live (> 0).
+
+    A one-sided book has no meaningful mid: (ask+bid)/2 with a zero bid
+    silently reads as HALF the real price. Seen live 2026-09-30 — after the
+    4pm close SPY's bid dropped to 0 and two account snapshots recorded
+    spy_price 381.19 against a 762.34 close. Same mark-integrity rule as the
+    option-leg guard in executor_mcp.get_spread_mark_detail (09-25, D22
+    companion): a one-sided quote is missing data, never a price.
+    """
+    if not quote:
+        return None
+    try:
+        bid = float(quote["bid_price"])
+        ask = float(quote["ask_price"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if bid <= 0 or ask <= 0:
+        return None
+    return (ask + bid) / 2
+
+
 def _retry(fn, *args, **kwargs):
     for attempt in range(1, MAX_RETRIES + 1):
         try:

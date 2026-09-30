@@ -36,7 +36,7 @@ import reasoner_cache
 import reconciler
 import risk_gate
 import shadow_book
-from alpaca_client import AlpacaClient
+from alpaca_client import AlpacaClient, two_sided_mid
 from config import config
 from mcp_client import AlpacaMCP
 from pretrade_gate import _daily_pl, pre_trade_check
@@ -531,7 +531,17 @@ async def find_candidates(
     for sig, realized_vol in signals_with_vol:
         try:
             spot = client.get_latest_quote(sig.ticker)
-            spot_mid = (spot["ask_price"] + spot["bid_price"]) / 2
+            spot_mid = two_sided_mid(spot)
+            if spot_mid is None:
+                # A one-sided underlying quote would halve the spot fed to
+                # strike selection (same defect class as the 09-30 spy_price
+                # 381.19 snapshots) — skip the ticker this cycle instead.
+                logger.warning(
+                    "%s: one-sided underlying quote (bid=%s ask=%s) — skipping",
+                    sig.ticker, spot.get("bid_price"), spot.get("ask_price"))
+                gate_rejections.append({"ticker": sig.ticker, "stage": "spread_builder",
+                                       "reasons": ["one-sided underlying quote (no usable mid)"]})
+                continue
             plan = await build_spread(
                 mcp, sig.ticker, sig.direction,
                 spot_price=spot_mid, realized_vol=realized_vol,
