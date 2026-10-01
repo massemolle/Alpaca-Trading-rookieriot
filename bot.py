@@ -807,6 +807,13 @@ async def run_cycle() -> None:
             )
 
             opened_this_cycle = 0
+            # Opens submitted to the broker but not yet visible as live DB
+            # rows. Once record_spread_open lands, get_live_spreads() owns the
+            # count — feeding opened_this_cycle to the gate as well counted the
+            # same row twice and made the cap bind one slot early on
+            # multi-pick cycles (cycle 413, 2026-10-01: open_count_used 8 on a
+            # 7-row live book erased the judge's second pick).
+            opened_unrecorded = 0
             for c in candidates:
                 if c["ticker"] not in set(llm_selected):
                     continue
@@ -814,7 +821,7 @@ async def run_cycle() -> None:
                 try:
                     gate = await pre_trade_check(
                         mcp, client, plan,
-                        opened_this_cycle=opened_this_cycle,
+                        opened_this_cycle=opened_unrecorded,
                         contracts=c.get("contracts"),
                     )
                     if not gate.allowed:
@@ -833,6 +840,7 @@ async def run_cycle() -> None:
                         client=client, limit_credit=limit_credit,
                     )
                     opened_this_cycle += 1
+                    opened_unrecorded += 1
                     status = "open" if result.status in ("filled", "dry_run") else "pending"
                     credit = result.fill_credit if result.fill_credit is not None else plan.credit_estimate
                     cycle_id = db.record_cycle(slim_candidates, "opened", reasoning)
@@ -854,6 +862,9 @@ async def run_cycle() -> None:
                             fill_credit=result.fill_credit,
                             client_order_id=result.client_order_id,
                         )
+                        # The row is a live DB row now; the gate's
+                        # get_live_spreads() read counts it from here on.
+                        opened_unrecorded -= 1
                     except Exception:
                         # Order may exist at broker — never silently drop.
                         logger.exception(
@@ -896,7 +907,7 @@ async def run_cycle() -> None:
                 try:
                     gate = await pre_trade_check(
                         mcp, client, cand["_plan"],
-                        opened_this_cycle=opened_this_cycle,
+                        opened_this_cycle=opened_unrecorded,
                         contracts=cand.get("contracts"),
                     )
                     counterfactual_gate.append({

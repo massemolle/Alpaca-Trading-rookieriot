@@ -305,6 +305,25 @@ surviving (possible assignment), unreadable expiration — is untouched
 and blocks exactly as before; realized P&L stays None (settlement cash
 is not knowable from here) for manual backfill from broker statements.
 
+## D24 — The cap counts spreads, not bookkeeping echoes (2026-10-01, nightly engineer)
+
+`bot.py` now feeds the pre-trade gate only opens the DB cannot see yet
+(`opened_unrecorded`: incremented at submission, decremented once
+`record_spread_open` lands), instead of the journal counter
+`opened_this_cycle`. Since every successful open is recorded as a live row
+before the next pick is gated, the old wiring counted the same spread twice
+— once in `get_live_spreads()` (D22) and once in `opened_this_cycle` — so
+on multi-pick cycles the concurrent cap bound one slot early. Evidence:
+cycle 413 (2026-10-01 14:02Z) had two slots genuinely free; SPY opened and
+was recorded, then the judge's self-declared standout TLT pick was rejected
+with `open_count_used: 8` on a seven-row live book. The cap itself is
+untouched and still binds at exactly 8 real spreads (control tests); the
+one case where `opened_this_cycle` carried information the DB lacked — a
+DB write failing after the order reached the broker — still occupies a
+gate slot via the new counter, which only decrements on a successful
+write. Same doctrine as D22, pointed the other way: the gate must see
+every real position, and no position twice.
+
 ## Open questions
 
 - [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)

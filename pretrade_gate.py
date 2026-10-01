@@ -139,7 +139,11 @@ async def _pre_trade_check_inner(
     # Live rows, not just status='open' — a pending_close spread's legs are
     # still at the broker until the close fills (2026-09-25: two resting
     # closes hid $824 of XLE exposure from this very read and a third XLE
-    # spread passed the gate).
+    # spread passed the gate). opened_this_cycle must count ONLY opens not
+    # yet visible as live DB rows (normally 0 — the caller records each open
+    # before the next gate call; nonzero only while a DB write after
+    # submission has failed). Counting a recorded row here as well counts it
+    # twice and makes the cap bind a slot early (cycle 413, 2026-10-01).
     fresh_open = db.get_live_spreads()
     open_count = len(fresh_open) + opened_this_cycle
     existing_exposure: dict[str, float] = {}

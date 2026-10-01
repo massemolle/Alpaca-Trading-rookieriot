@@ -2,6 +2,102 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-01 evening (reviewing trading day 2026-10-01 — a healthy day whose one defect was bureaucratic: the cap counted a just-opened spread twice and erased the judge's standout pick at a cap that wasn't reached)
+
+**Verdicts on 09-30 watch items.** (1) CONFIRMED: snapshots 424/425
+(20:00/20:30Z) record `spy_price: null` while 19:30Z still read a real
+764.54 — the one-sided-quote guard's first live firing, and no half-price
+row will ever poison the benchmark again. The 381.19-shaped historical
+rows still await the team's SQL one-liner. (2) Zero "one-sided underlying
+quote" gate rejections in any journal today — during RTH these ETFs quote
+two-sided, exactly as predicted; the trading-path guard is armed but
+silent, which is the healthy reading. (3) XLE 63.5/68.5 ran today's leg
+of the script: profit-target closes rested, died at the bell, resolver
+reverted both XLE rows to `open` (snapshot open-count walked 6 → 8 after
+the close). It expires tomorrow 10-02; Monday's first reconcile should
+D23-settle it and `expiry_unbooked_credit_usd` grows to $149. (4) The TLT
+bounce never came (gap −1.14%, close −0.15% at 77.725) — instead TLT
+79/84 (id 59) hit its profit target at 14:00:56Z and the mleg close
+FILLED for +$22: one more exhibit that near-money legs fill and only
+quote-dead legs rest.
+
+**The day.** Modestly green tape (SPY +0.23%; XLE +1.97% the biggest
+universe move; TLT −0.15% on 2.0× volume). Fifteen cycles: two opens —
+SPY 776/781 bear call (c413, $73 credit on a clean SPY book) and TLT
+78.5/83.5 bear call (c417, $61.5, a deliberate second TLT on the
+slate-standout 0.677 signal) — four abstentions (c412/414/415/416), all
+citing the raised reserve-slot bar on stacked, thin-credit slates, and
+the rest at-cap or closed skips. Realized +$22 (id 59). Equity −0.14% to
+$98,534; book 8/8 at the bell.
+
+**analyze-regret, as charged.** Step 2 from `ablation_totals`
+`recent_7d`: rule −$18.92/close (53) vs random −$24.66 (12) vs LLM
+−$27.33 (6) — nominally rule-led, but llm_real still carries the +$74
+censored expiry credit; booked, the LLM row reads ≈−$12.9/close over 7
+and leads the week. A losing week for every arm, parity within noise,
+no trigger. Step 3: today's two positive drops are XLE +$4 (c415) and
+QQQ +$7 (c413) — pure noise — while the dropped TLT 78/83 at c414
+closed_stop −$48.5 the same day and every other drop marks negative;
+the four abstentions all classify (a). All 15 `resolved_dropped_journal`
+entries re-read tonight as the same reserve-slot/concentration
+discipline. Eleventh consecutive judge-healthy session; the weak link is
+again class (c) infrastructure:
+
+**The finding — the cap counted one spread twice.** Cycle 413 (14:02Z):
+id 59's close had just freed a slot, `remaining_budget` was honestly 2,
+and the judge selected SPY and TLT — calling TLT "the standout setup"
+with its highest conviction of the day. SPY opened and was recorded;
+the TLT pre-trade check then read `open_count_used: 8` on a SEVEN-row
+live book and rejected the pick "at the 8 concurrent cap". Mechanism,
+desk-verified in code: since D22 every successful open is recorded as a
+live DB row before the next pick is gated, so `get_live_spreads()`
+already counts it — and `pre_trade_check` added `opened_this_cycle` on
+top (`pretrade_gate.py` line 144), counting the same spread twice. The
+09-25 session saw the overlap and left it as "strictly conservative";
+today it fired for real and silenced the judged arm's decision while the
+menu book recorded the pick as taken (it marks −$34 tonight, so the
+block cost nothing — luck, not design). The deeper cost is to the
+experiment itself: an LLM-vs-rule ablation where the LLM's chosen trade
+is randomly erased on multi-pick cycles near the cap measures the gate's
+bookkeeping, not the judge.
+
+**Change (one theme, logged as D24: the cap counts spreads, not
+bookkeeping echoes; the cap itself untouched).** `bot.py` now passes the
+gate `opened_unrecorded` — incremented at submission, decremented only
+when `record_spread_open` succeeds — instead of the journal counter
+`opened_this_cycle` (both call sites, counterfactual diagnostic
+included). Normal path: 0, the DB row carries the count. DB write fails
+after submission: the phantom still occupies a gate slot, exactly the
+fail-closed case the old counter existed for. This is not a loosening:
+the cap still binds at exactly 8 real spreads — what changed is that 7
+no longer masquerades as 8. `tests/test_cap_single_count.py` (4 tests)
+pins the corrected c413 shape (7 live rows → 8th slot allowed), the
+at-cap control (8 rows still block), the unrecorded-open compensation,
+and the bot.py wiring in source. **218 passed** in-session (was 214);
+`py_compile` clean on both touched modules.
+
+**Watch tomorrow.** (1) XLE 63.5/68.5 expires — resting close through
+the bell, then Monday's D23 settlement; read the 13:00Z Monday log. (2)
+Any multi-pick cycle: `pre_trade_rejections` facts should now show
+`open_count_used` equal to the true live-row count (and
+`opened_this_cycle: 0` in the facts is the healthy reading). (3) The
+book now holds TWO near-ATM TLT bear calls (78 and 78.5 shorts vs a
+77.725 close, $855 combined max loss) — the stops-fill hypothesis gets
+its test on any real bond bounce; today's gap-down went our way. (4)
+GLD 395/400: GLD +0.49% to 382.78, ~3.2% headroom, quiet.
+
+**Proposals (not touched, team's call).** NEW (p): `bot.py` truncates
+multi-pick selections to `remaining_budget` in SLATE order
+(`llm_selected[:remaining_budget]`, line ~799) — at c413 the judge
+listed SPY first while calling TLT the standout, so on a genuinely
+1-slot cycle the truncation would keep the non-standout. Either have the
+reasoner prompt require selections in conviction order (a
+tune-reasoner-prompt edit; tonight's evidence is one cycle, below the
+skill's own bar) or sort picks by cited strength before truncation.
+Prior (l) single-leg buy-to-close (one more near-money-fills exhibit
+today), (n) expiry P&L backfill ($149 pending Monday), (o)
+`closed_force` status, (i)/(k) all still open.
+
 ## 2026-09-30 evening (reviewing trading day 2026-09-30 — a quiet, healthy day; the new censoring column went live on schedule, and the SPY benchmark recorded half the real price after the close)
 
 **Verdicts on 09-29 watch items.** (1) CONFIRMED: `ablation_totals` shows
