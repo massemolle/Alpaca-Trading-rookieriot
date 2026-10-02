@@ -2,6 +2,114 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-02 evening (reviewing trading day 2026-10-02 — a flat, judge-healthy day; the one defect was again infrastructure erasing a judged pick: the content-id dedup rejected a deliberate same-hour IWM stack as a duplicate. No code change tonight.)
+
+**Verdicts on 10-01 watch items.** (1) XLE 63.5/68.5 (id 48) ran its
+expiry day on script: still `open` in the DB at the bell, D23 settlement
+expected at Monday 10-05's first reconcile, which should take
+`expiry_unbooked_credit_usd` from $74 to ~$149. (2) No multi-pick cycle
+today, so D24's strict confirmation is still pending — but the weak
+confirmation came in: c432 opened the 8th spread on a true 7-row book
+with zero false "at the cap" rejections all day, and c433 then read an
+honest 8/8. (3) The TLT bounce still hasn't come (TLT −0.31% to 77.485
+on 1.45× volume); both bear calls (78 / 78.5 shorts) sit ~0.7–1.3% OTM
+and the stops-fill hypothesis remains untested. (4) GLD 395/400 resolved
+the watch: profit target hit at 16:00Z, closed +$31 — filled, not
+rested.
+
+**The day.** A broad gap-up (SPY +0.73% on a +0.86% open gap, QQQ
++1.01%, IWM +0.86%) that drifted sideways after. Realized −$2 net on
+three closes: SPY 776/781 bear call (id 62, yesterday's c413 open)
+stopped −$73 on the gap through the short strike at 13:31Z — the stop
+honored on the first cycle after the macro blackout, one more near-money-
+fills exhibit; QQQ 725/720 (the 09-30 standout) +$40 at profit target;
+GLD 395/400 +$31. Two opens, both IWM bull puts on the day's standout
+signal (0.64–0.68, ADX ~40): 278/273 at c430 ($86 credit) and 279/274 at
+c432 ($80 fill). One error at c431 (below). Eight consecutive
+abstentions c434–441, all the same shape: last-slot reserve bar, strong
+names (TLT/IWM/XLE) already 2–3 spreads deep, fresh names weak (GLD
+≈0 strength, SPY ADX 10.8, QQQ long into RSI 75). Equity $98,584.68
+(−0.004%); book 7 live rows + id 48 awaiting settlement.
+
+**analyze-regret, as charged.** Step 2 from `ablation_totals`
+`recent_7d`: rule −$6.52/close (70) vs LLM −$18.44 (9; ≈−$9.2/close
+once the +$74 censored expiry credit is booked across 10) vs random
+−$19.97 (17). Rule nominally leads the censoring-adjusted LLM by
+~$2.7/close on a 9-close LLM sample — within noise, losing week for all
+three arms, no tune-reasoner trigger; worth re-reading next week because
+the rule's week improved sharply (−$18.92 → −$6.52) while the LLM's
+sample stayed tiny. Step 3: the only CLOSED dropped candidate from
+today's cycles is c430's TLT 78.5/83.5, +$12 closed_profit — judge
+cited $20 credit vs $480 max loss (~4%) and 2 open TLT spreads; sound
+pass, lucky small win, class (a). Every one of today's eight abstention
+rationales re-reads as the same correct reserve-slot/concentration
+discipline with correctly-cited facts; the dropped rows still open mark
+−$28…+$12 — marks, not evidence. **No (b)/(c) pattern. Twelfth
+consecutive judge-healthy session.** The weak link is again class (c)
+infrastructure:
+
+**The finding — the duplicate-order guard ate a deliberate stack.** At
+c431 (14:31Z) the judge picked a second IWM bull put, explicitly arguing
+the stack ("existing exposure is modest, conviction earns the final
+slot"). Alpaca rejected the submit 422 `client_order_id must be unique`
+(code 40010001) and the cycle recorded decision `error`. Mechanism,
+desk-verified: `executor_mcp._content_order_id` derives the open's id
+from (short_symbol, long_symbol, contracts, UTC-HOUR) so that an
+ambiguous-timeout retry or crash replay dedups at the broker. c430 had
+opened IWM 278/273 at 14:01Z; at 14:31Z the builder produced the SAME
+legs (IWM barely moved), same hour window → same id → rejected. The
+menu book corroborates the leg-identity independently: `open_menu_book`
+dedups on the same symbol pair and recorded no new IWM row at c431. The
+docstring's assumption — "legitimate same-hour re-entry is ruled out by
+the protections cooldown" — is the gap: the cooldown blocks re-entry
+after a STOP; it never considered a deliberate same-hour STACK of
+identical legs, which the judge is allowed to want. Cost tonight: one
+cycle's delay; at 15:01 IWM had risen a strike, the legs differed, and
+c432 filled 279/274 at $80 — better than c431's $75.5 estimate, so the
+block cost nothing (luck, again, not design). Frequency: first
+occurrence in 431 cycles, self-healing at the next hour boundary or
+strike shift. But it is the second day running that infrastructure, not
+judgment, erased a judged-arm pick — c413's phantom cap yesterday, the
+dedup window today — and the LLM-vs-rule ablation only measures the
+judge when the judge's picks actually reach the broker.
+
+**Changes tonight: none.** The fix belongs in
+`executor_mcp._content_order_id`, which sits inside the order-idempotency
+safety path I am charter-bound not to touch; the judge needs no tuning
+(no pattern), the ablation shows no trigger, and the within-hour dedup
+behavior itself is already pinned by
+`test_hardening.py::test_content_order_id_is_idempotent_within_hour`.
+A thin-evidence night; the honest move is the proposal below, not a
+reflex edit.
+
+**Proposals (team's call, not touched).** NEW (q): make the open dedup
+window match its threat model. The id exists to catch an ambiguous-
+timeout retry or crash replay — seconds-to-minutes events — but the
+window is a full UTC hour, so with a 30-min cron any two consecutive
+cycles in the same clock hour collide on identical legs, and whether a
+deliberate stack survives depends on where the hour boundary happens to
+fall (14:01+14:31 collide; 14:55+15:05 don't). Two one-line shapes:
+shrink the window to ~10 min (crash replay still caught; consecutive
+cycles never collide), or salt the digest with `cycle_id` (dedups
+retries within a cycle, never across cycles). Either preserves the
+guard's purpose; both are executor changes. Optionally, `bot.py` could
+map Alpaca code 40010001 to a journaled `duplicate_id_block` instead of
+a generic `error` decision — also adjacent to submission error handling,
+so left with the team. Prior: (p) multi-pick truncation in slate order
+(no multi-pick cycle today, no new evidence), (l) single-leg
+buy-to-close, (n) expiry P&L backfill (grows to ~$149 Monday), (o)
+`closed_force` status, (i)/(k) all still open.
+
+**Watch tomorrow (Fri 10-03).** (1) IWM carries the book's concentration
+now: two bull puts, shorts 278/279 vs a 281.44 close — ~0.9% cushion;
+any gap-down morning tests both at once (the TLT-twin risk shape from
+10-01, other direction). (2) TLT 78/78.5 shorts vs 77.485 — the bounce
+test still pending. (3) XLE id 52 (63/68) expires Monday 10-05 alongside
+id 48's settlement — Monday's 13:00Z log should show two D23 events and
+the censored column at ~$149 + id 52's outcome. (4) If any cycle stacks
+identical legs within one clock hour again, expect another 40010001 —
+that's proposal (q)'s evidence counter, not a new bug.
+
 ## 2026-10-01 evening (reviewing trading day 2026-10-01 — a healthy day whose one defect was bureaucratic: the cap counted a just-opened spread twice and erased the judge's standout pick at a cap that wasn't reached)
 
 **Verdicts on 09-30 watch items.** (1) CONFIRMED: snapshots 424/425
