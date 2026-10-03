@@ -181,3 +181,41 @@ calibration-shrunk sizing; lookahead tripwire.
 Tier 4 (shadow paired A/B promotion) is built alongside without touching live
 behavior. Real money remains a question we ask the DATA at the end of the runway,
 not the calendar.
+
+
+## Podium lessons (2026-10-03 — code-level review of the hackathon winners)
+
+Winners: 1st Autobelay (+5.10%, long premium 2–14 DTE, 15 trades — their own
+challenger model on identical code: −7.04%; Thursday alone = 72% of the win);
+2nd Should-AI-Buy (typed claim-refutation council — already on our shelf);
+3rd Killswitch Capital (+2.36%, ITM long singles, 3 round trips). Pattern:
+long premium fit THE week; "model proposes, code disposes" made architectural
+(the model never holds a write tool); honesty delivered as NARRATIVE
+(disclosed losing accounts, failures with issue numbers) rather than as
+infrastructure; auditability a judge can see in minutes.
+
+Adopt (prioritized):
+1. **Rhetoric auditing** *(Autobelay citations.py; S–M)* — beyond our
+   cited-fact-id check: verify the VALUES the model quotes against the exact
+   facts it was handed; audit exit claims for fabricated urgency; audit
+   action-vs-cited-probability alignment. We gate what the model DOES;
+   start auditing what it SAYS.
+2. **Brier-score every signal nightly** *(Autobelay; M)* — every prior shown
+   to the selector gets scored when resolvable; gate-withheld signals
+   shadow-scored. Merges into our calibration roadmap item.
+3. **Fast-converging conduct metrics** *(Autobelay; S)* — stance-flip/churn
+   rate resolves in ~5 days vs ~25 for P&L; add to nightly context.
+4. **Journal refusals as first-class + one-command HTML report**
+   *(Killswitch; S)*; declare the "exits are never gated, exits run first"
+   invariant explicitly in code+tests (we live it; they stated it).
+5. **IV/RV richness + daily-theta-burden gates** *(Killswitch; S–M)* —
+   inverted for our selling side: sell only when premium is RICH vs realized.
+6. **Runtime overrides that expire at the close** *(Autobelay; S)* —
+   "tomorrow starts from git."
+7. **Write-tool quarantine, stated** *(both; S)* — our reasoner already has
+   no tools; make the claim explicit and testable so the property is legible.
+
+Kept perspective: our ablation baselines remain more rigorous than any
+winner's A/B (Autobelay's own writeup: "has never isolated the model"), and
+no winner has validated self-modification. The gap was regime bet ×
+legibility of trust — not engineering.
