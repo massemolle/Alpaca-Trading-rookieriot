@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from datetime import date, timedelta
 import inspect
 
 import pytest
@@ -48,13 +49,31 @@ def run(coro):
 # --------------------------------------------------- should_close stop guard
 
 def _pin_exit_limits(monkeypatch):
+    # Pin the exit limits AND the contest end date. The contest window is a
+    # live, env-tunable calendar value (rolled forward 2026-09-07 and due to
+    # roll again): once it passes, should_force_close's trigger 2 latches
+    # True forever and force-closes EVERY spread, so these exit tests would
+    # silently stop testing what they claim to test. Found 2026-10-04: the
+    # garbage-mark test failed in a bare shell (default date, long passed)
+    # while passing under the nightly gate (which sources .env) — the test
+    # was measuring the calendar, not the guard.
+    far_future = (date.today() + timedelta(days=365)).isoformat() + "T15:00:00+00:00"
     pinned = dataclasses.replace(
         risk_gate.config,
         risk=dataclasses.replace(
-            risk_gate.config.risk, profit_target_pct=0.50, stop_loss_multiple=2.0
+            risk_gate.config.risk, profit_target_pct=0.50, stop_loss_multiple=2.0,
+            contest_end_utc=far_future,
         ),
     )
     monkeypatch.setattr(risk_gate, "config", pinned)
+
+
+def test_exit_tests_are_not_measuring_the_calendar(monkeypatch):
+    """Regression for the 2026-10-04 finding itself: with limits pinned, the
+    contest-close window must be inactive, so these tests exercise the mark
+    logic rather than a latched force-close."""
+    _pin_exit_limits(monkeypatch)
+    assert risk_gate.in_contest_close_window()[0] is False
 
 
 def test_two_sided_stop_still_fires(monkeypatch):
