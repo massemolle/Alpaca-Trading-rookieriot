@@ -240,6 +240,35 @@ def _heal_false_closes(orphan: set[str], positions: list[dict[str, Any]]) -> int
     return healed
 
 
+def _premium_leg_quantities() -> dict[str, int]:
+    """Open single legs owned by the parallel premium-buyer sleeve (long
+    calls/puts on the same account). They are legitimate, foreign to the
+    spreads book, and must not be counted as orphans here. Fail-open to {}:
+    if the sleeve's tables are missing/unreadable, reconciliation proceeds
+    exactly as before the sleeve existed."""
+    try:
+        from premium_buyer import book as premium_book
+        return premium_book.open_leg_quantities()
+    except Exception:
+        return {}
+
+
+def _exclude_foreign_legs(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    foreign = _premium_leg_quantities()
+    if not foreign:
+        return positions
+    out = []
+    for p in positions:
+        sym = str(p.get("symbol") or "")
+        if sym in foreign and str(p.get("side") or "") == "long":
+            remaining = abs(float(p.get("qty") or 0)) - foreign[sym]
+            if remaining <= 0:
+                continue  # fully explained by the buyer sleeve
+            p = dict(p, qty=remaining)
+        out.append(p)
+    return out
+
+
 def reconcile(client, *, block_on_mismatch: bool = True, _allow_heal: bool = True) -> ReconcileResult:
     """Compare Alpaca option positions to DB open/pending spreads.
 
@@ -256,7 +285,7 @@ def reconcile(client, *, block_on_mismatch: bool = True, _allow_heal: bool = Tru
     """
     reasons: list[str] = []
     try:
-        positions = client.get_positions()
+        positions = _exclude_foreign_legs(client.get_positions())
     except Exception as exc:
         logger.exception("Failed to fetch broker positions")
         return ReconcileResult(ok=False, reasons=[f"broker positions unavailable: {exc}"])

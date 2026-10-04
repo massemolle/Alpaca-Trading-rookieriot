@@ -74,3 +74,23 @@ def realized_vol_from_bars(bars_df: pd.DataFrame, window: int = 20) -> float:
     if len(log_returns) < 2:
         return 0.20  # a reasonable fallback rather than a crash on thin history
     return annualized_realized_vol(float(log_returns.std()))
+
+
+def bs_price(
+    *, spot: float, strike: float, dte_days: float, volatility: float,
+    option_type: str, r: float = 0.05,
+) -> float:
+    """Closed-form Black-Scholes option price (per share). Added 2026-10-04
+    for the premium-buyer sleeve's richness gate; same model/assumptions as
+    bs_delta above (RV proxy for IV, flat rate)."""
+    import math
+
+    if dte_days <= 0 or volatility <= 0 or spot <= 0 or strike <= 0:
+        intrinsic = (spot - strike) if option_type == "call" else (strike - spot)
+        return max(0.0, intrinsic)
+    t = dte_days / 365.0
+    d1 = (math.log(spot / strike) + (r + 0.5 * volatility ** 2) * t) / (volatility * math.sqrt(t))
+    d2 = d1 - volatility * math.sqrt(t)
+    if option_type == "call":
+        return spot * _norm_cdf(d1) - strike * math.exp(-r * t) * _norm_cdf(d2)
+    return strike * math.exp(-r * t) * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
