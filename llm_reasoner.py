@@ -69,10 +69,40 @@ $355 max loss [SPY_MAX_LOSS]". Never introduce numbers that have no fact id — 
 figure you want isn't in the facts, reason without it. Note the quality field: \
 `indicative_delayed` means the quote may be stale/modified (free feed).
 
-Respond with ONLY a JSON object: {"selected": ["TICKER", ...], "reasoning": "..."}. \
+For EVERY ticker you select you must also state `p_win`: your probability \
+(0-1) that this spread reaches its profit target before its stop. Selecting \
+with p_win below 0.55 contradicts your own belief and will be rejected.
+
+Respond with ONLY a JSON object: \
+{"selected": [{"ticker": "TICKER", "p_win": 0.0}, ...], "reasoning": "..."}. \
 `reasoning` must be a few real sentences explaining the specific choice — this text \
 is shown verbatim on the project's public dashboard as the agent's own explanation, \
-so make it genuinely informative, not generic filler."""
+so make it genuinely informative, not generic filler.
+
+Backward compatibility: a bare ["TICKER", ...] list is still accepted but \
+scores as an unstated forecast — always prefer the object form."""
+
+
+def normalize_selected(selected: list) -> tuple[list[str], dict[str, float | None]]:
+    """Accept both the new [{"ticker","p_win"}] and legacy ["TICKER"] shapes.
+    Returns (tickers, {ticker: p_win|None})."""
+    tickers: list[str] = []
+    probs: dict[str, float | None] = {}
+    for item in selected or []:
+        if isinstance(item, dict):
+            tk = item.get("ticker")
+            if not tk:
+                continue
+            tickers.append(tk)
+            p = item.get("p_win")
+            try:
+                probs[tk] = float(p) if p is not None else None
+            except (TypeError, ValueError):
+                probs[tk] = None
+        elif isinstance(item, str):
+            tickers.append(item)
+            probs[item] = None
+    return tickers, probs
 
 
 def _check_citations(candidates: list[dict], reasoning: str) -> None:

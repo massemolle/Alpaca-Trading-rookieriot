@@ -27,6 +27,7 @@ from alpaca.data.timeframe import TimeFrame
 
 import benchmark
 import black_scholes
+import credit_forecasts
 import db
 import executor_mcp
 import llm_reasoner
@@ -34,6 +35,7 @@ import portfolio_beta
 import protections
 import reasoner_cache
 import reconciler
+import rhetoric
 import risk_gate
 import shadow_book
 from alpaca_client import AlpacaClient, two_sided_mid
@@ -765,6 +767,7 @@ async def run_cycle() -> None:
         pre_trade_rejections: list[dict] = []
         shadow_selected: list[str] = []
         llm_selected: list[str] = []
+        p_by_ticker: dict[str, float | None] = {}
         cycle_id: int | None = None
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
@@ -795,8 +798,24 @@ async def run_cycle() -> None:
                         cache_key, outcome,
                         datetime.now(timezone.utc).strftime("%H:%M UTC"),
                     )
+            # Podium upgrade (2026-10-04): accept the p_win-bearing shape,
+            # audit what the model SAYS (not just what it does), and record
+            # every stated probability — taken and declined — for Brier scoring.
+            raw_selected, p_by_ticker = llm_reasoner.normalize_selected(outcome["selected"])
+            audit_flags = rhetoric.audit_values(slim_candidates, reasoning) + rhetoric.audit_alignment(
+                [{"ticker": tk, "p_move": p_by_ticker.get(tk)} for tk in raw_selected
+                 if p_by_ticker.get(tk) is not None],
+                min_p=float(os.environ.get("MIN_STATED_P_WIN", "0.55")),
+            )
+            if audit_flags:
+                # A judge that misquotes its evidence or contradicts its own
+                # stated probability does not trade this cycle.
+                logger.warning("RHETORIC AUDIT blocked the selection: %s", audit_flags)
+                pre_trade_rejections.append({"stage": "rhetoric_audit", "reasons": audit_flags})
+                reasoning = f"[RHETORIC AUDIT BLOCKED: {'; '.join(audit_flags)}] " + reasoning
+                raw_selected = []
             # Hard-cap LLM selection to remaining_budget (prompt alone is insufficient).
-            llm_selected = list(outcome["selected"])[:remaining_budget]
+            llm_selected = raw_selected[:remaining_budget]
             # Drop any ticker not in the menu.
             menu_tickers = {c["ticker"] for c in slim_candidates}
             llm_selected = [t for t in llm_selected if t in menu_tickers]
@@ -953,6 +972,14 @@ async def run_cycle() -> None:
             equity=float(account["equity"]),
             max_risk_pct=config.risk.max_loss_per_spread_pct,
         )
+        # Podium upgrade: record every forecast (taken + declined) and score
+        # whatever has since resolved. Non-fatal, no extra cron.
+        try:
+            credit_forecasts.record(cycle_id, candidates, p_by_ticker, llm_selected)
+            credit_forecasts.resolve_due()
+        except Exception:
+            logger.exception("credit forecast step failed (non-fatal)")
+
         shadow_book.open_menu_book(
             cycle_id=cycle_id,
             candidates=candidates,

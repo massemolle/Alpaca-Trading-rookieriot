@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from premium_buyer import brier, config as pcfg, executor, rhetoric
+import rhetoric
+from premium_buyer import brier, config as pcfg, executor
 from premium_buyer.builder import build_buy
 from tests.test_spread_builder_otm import ChainMCP, _contract
 from tests.conftest import snapshot
@@ -117,3 +118,21 @@ def test_reconciler_partial_overlap_reduces_qty(monkeypatch):
     positions = [{"symbol": "SPY261016C00770000", "side": "long", "qty": 3.0}]
     out = rec._exclude_foreign_legs(positions)
     assert len(out) == 1 and out[0]["qty"] == 2.0
+
+
+# ---- credit-sleeve podium upgrades -------------------------------------------
+
+def test_normalize_selected_accepts_both_shapes():
+    import llm_reasoner
+    tk, p = llm_reasoner.normalize_selected([{"ticker": "SPY", "p_win": 0.7}, "QQQ"])
+    assert tk == ["SPY", "QQQ"]
+    assert p["SPY"] == 0.7 and p["QQQ"] is None
+    assert llm_reasoner.normalize_selected([]) == ([], {})
+    assert llm_reasoner.normalize_selected([{"no_ticker": 1}]) == ([], {})
+
+
+def test_credit_brier_math():
+    import credit_forecasts
+    assert credit_forecasts.brier(0.8, 1) == 0.04
+    assert credit_forecasts.brier(0.8, 0) == 0.64
+    assert credit_forecasts.brier(0.5, 1) == 0.25  # coin flip reference

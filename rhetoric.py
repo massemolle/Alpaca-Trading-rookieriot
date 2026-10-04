@@ -1,4 +1,4 @@
-"""Rhetoric audit — NEW ADDITION #1 (adapted from Autobelay's citations.py
+"""Rhetoric audit — shared by BOTH sleeves (adapted from Autobelay's citations.py
 idea, MIT, re-implemented): beyond checking that cited fact-ids EXIST
 (the credit bot's check), verify (a) the VALUES the model quotes next to a
 citation match the fact it was handed, and (b) the ACTION aligns with the

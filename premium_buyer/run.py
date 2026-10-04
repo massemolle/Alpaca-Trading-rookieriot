@@ -21,7 +21,8 @@ import bot as credit_bot
 import db  # noqa: F401
 from alpaca_client import AlpacaClient
 from mcp_client import AlpacaMCP
-from premium_buyer import book, brier, builder, config as pcfg, executor, reasoner, rhetoric
+import rhetoric
+from premium_buyer import book, brier, builder, config as pcfg, executor, reasoner
 from spread_builder import _fetch_snapshots, _mid_from_snapshot
 from screening.filters import filter_universe
 from signals.swing import generate_swing_signals

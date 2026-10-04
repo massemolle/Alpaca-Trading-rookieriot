@@ -23,8 +23,19 @@ def test_prompt_rejects_best_of_weak_slate_as_justification():
 
 
 def test_prompt_keeps_json_contract_verbatim():
-    # _decide_via_claude_code and the openai path both parse exactly this shape.
-    assert '{"selected": ["TICKER", ...], "reasoning": "..."}' in llm_reasoner.SYSTEM_PROMPT
+    # Both parse paths go through normalize_selected, which accepts the
+    # p_win-bearing object shape (primary, 2026-10-04 podium upgrade) and the
+    # legacy bare-ticker list. The prompt must still pin BOTH verbatim.
+    assert '{"selected": [{"ticker": "TICKER", "p_win": 0.0}, ...], "reasoning": "..."}' \
+        in llm_reasoner.SYSTEM_PROMPT
+    assert '["TICKER", ...] list is still accepted' in llm_reasoner.SYSTEM_PROMPT
+
+
+def test_prompt_requires_stated_probability():
+    # Brier scoring (credit_forecasts) and the rhetoric alignment audit both
+    # depend on the judge stating p_win per pick.
+    assert "p_win" in llm_reasoner.SYSTEM_PROMPT
+    assert "contradicts your own belief" in llm_reasoner.SYSTEM_PROMPT
 
 
 def test_prompt_keeps_citation_rule():
