@@ -2,6 +2,89 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-05 evening (reviewing trading day 2026-10-05 — a green five-open Monday; the judge was right all day and the brand-new rhetoric audit false-blocked one of its picks. One fix: the citation parser in `rhetoric.py` now pairs grouped citations positionally.)
+
+**Verdicts on 10-02 watch items.** (1) IWM concentration: the gap-down
+never came — IWM +0.69% and the judge *added* two more bull puts on
+0.66–0.82 signals, taking IWM to 4 open spreads (~$1,690 max loss); this
+is now the book's dominant risk, but every add was explicitly argued,
+not drift. (2) The TLT bounce stop-fill test is still pending (TLT
+−0.48%, both bear calls further OTM, two more opened today). (3) The
+XLE settlements arrived on script: `expiry_unbooked_credit_usd` grew
+$74 → $149 (n=2) as predicted, and the day's last cycle (c461, 20:30Z)
+went `reconcile_block` on the expired `XLE261005C00063000` leg —
+expected D23 behavior, should clear at tomorrow's first reconcile when
+the expiry sweep books both rows. Watch that it does. (4) No same-hour
+identical-leg stack today, so the c431 dedup collision (proposal q)
+stayed dormant.
+
+**The day.** A quiet up-drift Monday (SPY +0.69% on a 0.02% gap, IWM
++0.69%, TLT −0.48%; no macro shock). The busiest judged day yet: five
+opens — SPY 759/754 (c448), IWM adds at c450 and c459, TLT bear calls
+at c451 and c458 — six abstentions (c452–457), all the familiar sound
+last-slot reserve shape, and one *blocked* open at c449 (below). Equity
+$98,688.31, +$50.90 on the day (+0.05%), 8 live rows at the bell.
+
+**analyze-regret, as charged.** Step 2, `ablation_totals.recent_7d`:
+rule −$2.16/close (79) vs LLM −$4.58/close (12 raw); the LLM arm still
+carries 2 censored expiry winners worth up to $149 credit, so the
+adjusted LLM is ≈ +$6.7/close upper bound — parity-or-better with the
+rule, and random (−$28.66/close, 15) remains clearly worst. LLM ≳ rule
+≫ random → healthy, no tune-reasoner trigger. Step 3: today's dropped
+rows are all open marks, not fills — the positive ones (SPY 761/756
++$19.5, SPY 762/757 +$18, IWM 277/272 +$23.5) were dropped on
+correctly-cited weak-SPY-signal (0.28–0.37, ADX ~10 ranging) and
+IWM-concentration grounds: class (a) throughout. The only CLOSED
+dropped row, XLE 60/55 (c455), stopped out −$10 — the drop was right.
+**No (b)/(c) pattern in the judge. Thirteenth consecutive judge-healthy
+session.** The weak link was, for the third session running, machinery
+around the judge — this time the auditor itself:
+
+**The finding — the rhetoric audit false-blocked a correct pick.** At
+c449 (14:31Z) the judge selected TLT with every number in its rationale
+quoted correctly, including "risk/reward ($85.5/$414.5
+[IWM_CREDIT_EST][IWM_MAX_LOSS])". `rhetoric.audit_values` paired each
+tag with the *nearest preceding* number, so 414.5 was checked against
+IWM_CREDIT_EST (85.5) → "misquotes" → the whole selection was zeroed
+and the cycle journaled as abstained. The pick self-healed at c451
+(15:31Z) at a *better* credit ($47.5 vs $32) — zero realized cost, but
+that is luck, not design, and it is the third judged-arm pick in four
+sessions erased by infrastructure (c413 phantom cap, c431 dedup
+window, c449 audit). The style that trips it is not rare: the grouped
+citation `X/Y [A][B]` appears 7× and `X/Y [A, B]` 13× in the recent
+journal — the former mis-pairs (false block roulette every cycle that
+quotes credit/max-loss as a pair), the latter never matched the
+single-tag regex at all, i.e. half the quoted numbers were silently
+unaudited.
+
+**Change tonight (one theme): `rhetoric.py` citation-group parser.**
+A citation group = slash-separated numbers followed by adjacent
+brackets or a comma list of tags; numbers and tags now pair
+POSITIONALLY. One number against several tags flags only if it matches
+none; ambiguous count mismatches skip the value check rather than
+guess; thousands separators ("$1,257.5") parse instead of truncating.
+Single-number/single-tag behavior — the three original premium-buyer
+tests — is unchanged, and a true swapped-pair misquote still flags
+(pinned by test). This *narrows* what the audit can false-block and
+*widens* what it actually checks; it touches no risk limit. 7 new
+tests in `tests/test_premium_buyer.py` (238 passing), including the
+verbatim c449 fragment as a regression test. Benefits both sleeves
+(`bot.py` and `premium_buyer/run.py` share the module).
+
+**Known residual gap, deliberately not touched tonight:** the
+tag-with-value-inside style ("[IWM_SIGNAL_STRENGTH 0.803]", c458) is
+still invisible to the audit — matching it is a one-line extension but
+tonight's evidence only convicts the mis-pairing; one theme per night.
+
+**Watch tomorrow.** (1) c461's reconcile block must clear and the two
+unbooked expiry credits (~$149) must land in `llm_real` realized —
+if the block persists past the first open cycle, the sweep has a bug.
+(2) Any new `RHETORIC AUDIT BLOCKED` journal line — with the parser
+fixed, a block should now mean a *real* misquote; read it verbatim.
+(3) IWM 4-spread concentration (~$1,690) into any gap-down. (4) The
+premium sleeve's first live day (PREMIUM_DRY_RUN=false since Monday) —
+check its fills and the weekly comparator row.
+
 ## 2026-10-02 evening (reviewing trading day 2026-10-02 — a flat, judge-healthy day; the one defect was again infrastructure erasing a judged pick: the content-id dedup rejected a deliberate same-hour IWM stack as a duplicate. No code change tonight.)
 
 **Verdicts on 10-01 watch items.** (1) XLE 63.5/68.5 (id 48) ran its

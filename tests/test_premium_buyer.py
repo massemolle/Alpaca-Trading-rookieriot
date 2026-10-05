@@ -33,6 +33,59 @@ def test_rhetoric_catches_unknown_fact():
     assert flags and "unknown fact" in flags[0]
 
 
+# Grouped citations (c449 2026-10-05 false block): numbers and tags pair
+# positionally, not nearest-number-to-each-tag.
+
+def _iwm_cands():
+    return [{"ticker": "IWM", "facts": [
+        {"fact_id": "IWM_CREDIT_EST", "value": 85.5},
+        {"fact_id": "IWM_MAX_LOSS", "value": 414.5},
+    ]}]
+
+
+def test_rhetoric_slash_pair_adjacent_brackets_pairs_positionally():
+    # Verbatim shape that produced the c449 false block.
+    text = "best raw risk/reward ($85.5/$414.5 [IWM_CREDIT_EST][IWM_MAX_LOSS])"
+    assert rhetoric.audit_values(_iwm_cands(), text) == []
+
+
+def test_rhetoric_slash_pair_comma_list_pairs_positionally():
+    text = "thin reward: $85.5/$414.5 [IWM_CREDIT_EST, IWM_MAX_LOSS] today"
+    assert rhetoric.audit_values(_iwm_cands(), text) == []
+
+
+def test_rhetoric_still_catches_swapped_pair():
+    text = "risk/reward $414.5/$85.5 [IWM_CREDIT_EST][IWM_MAX_LOSS]"
+    flags = rhetoric.audit_values(_iwm_cands(), text)
+    assert len(flags) == 2 and all("misquotes" in f for f in flags)
+
+
+def test_rhetoric_single_number_multi_tag_matches_any():
+    # One number against a tag group: fine if it matches one of them...
+    assert rhetoric.audit_values(
+        _iwm_cands(), "only $414.5 [IWM_CREDIT_EST, IWM_MAX_LOSS] at risk") == []
+    # ...flagged when it matches none.
+    flags = rhetoric.audit_values(
+        _iwm_cands(), "only $999 [IWM_CREDIT_EST, IWM_MAX_LOSS] at risk")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_ambiguous_count_mismatch_not_flagged():
+    # 2 numbers vs 3 tags: pairing is ambiguous — no value flags.
+    cands = [{"ticker": "IWM", "facts": [
+        {"fact_id": "IWM_CREDIT_EST", "value": 85.5},
+        {"fact_id": "IWM_MAX_LOSS", "value": 414.5},
+        {"fact_id": "IWM_DTE", "value": 10},
+    ]}]
+    text = "$1/$2 [IWM_CREDIT_EST, IWM_MAX_LOSS, IWM_DTE]"
+    assert rhetoric.audit_values(cands, text) == []
+
+
+def test_rhetoric_thousands_separator_parsed():
+    cands = [{"ticker": "IWM", "facts": [{"fact_id": "IWM_OPEN_MAX_LOSS", "value": 1257.5}]}]
+    assert rhetoric.audit_values(cands, "carrying $1,257.5 [IWM_OPEN_MAX_LOSS]") == []
+
+
 def test_alignment_blocks_self_contradiction():
     flags = rhetoric.audit_alignment([{"ticker": "SPY", "p_move": 0.40}], min_p=0.55)
     assert flags and "contradicts belief" in flags[0]
