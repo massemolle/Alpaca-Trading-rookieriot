@@ -113,6 +113,88 @@ def test_premium_order_ids_idempotent_within_hour():
     assert a == b and a != c
 
 
+# ---- executor order shape (2026-10-06: every live submit of the sleeve's
+# first two days was 422-rejected, code 40010001 "either side or
+# position_intent must be set" — the payload used the mleg `legs` shape for
+# an order_class=simple order; alpaca-py's OrderRequest documents symbol and
+# side/position_intent as top-level requirements for every class but mleg) --
+
+class _OrderMCP:
+    def __init__(self, result=None, raise_exc=None):
+        self.result = result if result is not None else {
+            "id": "ord-1", "status": "accepted", "filled_avg_price": None}
+        self.raise_exc = raise_exc
+        self.calls = []
+
+    async def call(self, tool, arguments):
+        self.calls.append((tool, arguments))
+        if self.raise_exc is not None:
+            raise self.raise_exc
+        return self.result
+
+
+@pytest.mark.asyncio
+async def test_premium_buy_payload_is_toplevel_single_leg(monkeypatch):
+    monkeypatch.setattr(pcfg, "DRY_RUN", False)
+    mcp = _OrderMCP()
+    res = await executor.buy(mcp, "SPY261014C00784000", 1, 3.15)
+    tool, args = mcp.calls[0]
+    assert tool == "place_option_order"
+    assert "legs" not in args  # legs is the mleg-only shape
+    assert args["symbol"] == "SPY261014C00784000"
+    assert args["side"] == "buy" and args["position_intent"] == "buy_to_open"
+    assert args["order_class"] == "simple" and args["type"] == "limit"
+    assert args["limit_price"] == str(round(3.15 * 1.05, 2))
+    assert args["qty"] == "1" and args["time_in_force"] == "day"
+    assert args["client_order_id"].startswith("prem-open-")
+    assert res is not None and res["id"] == "ord-1"
+
+
+@pytest.mark.asyncio
+async def test_premium_sell_payload_is_toplevel_single_leg(monkeypatch):
+    monkeypatch.setattr(pcfg, "DRY_RUN", False)
+    mcp = _OrderMCP()
+    res = await executor.sell_to_close(mcp, "SPY261014C00784000", 1, 4.00)
+    tool, args = mcp.calls[0]
+    assert tool == "place_option_order"
+    assert "legs" not in args
+    assert args["symbol"] == "SPY261014C00784000"
+    assert args["side"] == "sell" and args["position_intent"] == "sell_to_close"
+    assert args["order_class"] == "simple"
+    assert args["limit_price"] == str(round(4.00 * 0.95, 2))
+    assert res is not None
+
+
+@pytest.mark.asyncio
+async def test_premium_buy_api_rejection_returns_none(monkeypatch):
+    # The literal 2026-10-05/06 rejection shape must map to None (no fill),
+    # never to a recorded position.
+    monkeypatch.setattr(pcfg, "DRY_RUN", False)
+    mcp = _OrderMCP(result={"error": {
+        "message": "API rejected the order", "http_status": 422,
+        "detail": {"code": 40010001,
+                   "message": "either side or position_intent must be set"}}})
+    assert await executor.buy(mcp, "NVDA261012C00242500", 1, 2.04) is None
+
+
+@pytest.mark.asyncio
+async def test_premium_orders_fail_closed_on_tool_exception(monkeypatch):
+    # A tool-level error (e.g. schema mismatch raised by mcp.call) must not
+    # propagate out of the executor — run.cycle() calls buy() mid-loop.
+    monkeypatch.setattr(pcfg, "DRY_RUN", False)
+    mcp = _OrderMCP(raise_exc=RuntimeError("Alpaca MCP tool failed"))
+    assert await executor.buy(mcp, "SPY261014C00784000", 1, 3.15) is None
+    assert await executor.sell_to_close(mcp, "SPY261014C00784000", 1, 3.15) is None
+
+
+@pytest.mark.asyncio
+async def test_premium_dry_run_places_no_order(monkeypatch):
+    monkeypatch.setattr(pcfg, "DRY_RUN", True)
+    mcp = _OrderMCP()
+    res = await executor.buy(mcp, "SPY261014C00784000", 1, 3.15)
+    assert mcp.calls == [] and res["status"] == "dry_run"
+
+
 # ---- builder richness gate ---------------------------------------------------
 
 def _chain_with_quotes(ticker, right, strike_quotes, expiration):

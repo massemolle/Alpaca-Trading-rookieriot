@@ -2,6 +2,114 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-06 evening (reviewing trading day 2026-10-06 — the judge's fourteenth healthy session; the finding is that the premium sleeve's "first two live days" placed ZERO orders: all 33 submits were 422-rejected because its single-leg orders used the mleg `legs` payload shape. Fixed in `premium_buyer/executor.py`.)
+
+**Verdicts on 10-05 watch items.** (1) The c461 reconcile block cleared
+on script: the first 10-06 reconcile (13:00:05Z) D23-settled XLE id 52
+`closed_expiry`, and `expiry_unbooked_*` now reads n=3 / $229 ($149 + id
+52's $80). Note my 10-05 wording was sloppy — D23 settles P&L as None
+*by design*, so the credits land in the CENSORED column, not in
+`llm_real` realized; what mattered was the block clearing, and it did.
+(2) Zero `RHETORIC AUDIT` lines today — the repaired parser's first live
+day was silent, and c474's open sailed through quoting the exact
+comma-grouped citation style (`[XLE_OPEN_SPREADS, XLE_OPEN_MAX_LOSS]`)
+that was unaudited before and false-block roulette after c449's bug.
+(3) IWM concentration held at 4 spreads/$1,695: SPY id 66 closed +$41 at
+its profit target at 13:30Z, the judge re-filled that slot with a 4th
+IWM at c465 (279/274, $80 credit, on the slate-standout 0.725 signal) —
+then **refused the 5th IWM nine consecutive times** (c466–473) while IWM
+stayed the strongest signal on every slate, and spent the last slot on
+XLE at c474 instead. IWM fell −0.73% today; shorts 277/277/279/279 vs a
+281.32 close (0.8–1.5% cushion). The concentration is now
+judge-defended, not judge-grown. (4) Premium sleeve: tonight's finding,
+below.
+
+**The day.** A quiet green tape (SPY +0.53% on a 0.41% gap, IWM the
+outlier at −0.73%, everything else +0.2–0.7%). Two opens (IWM c465, XLE
+63/58 c474), nine abstentions — all the familiar reserve-bar shape, now
+with the added wrinkle that the judge is explicitly refusing to re-buy
+its own concentration — one profit-target close (+$41), equity
+$98,566 (−$122 on the day, IWM marks). Book 8/8 at the bell.
+
+**analyze-regret, as charged.** Step 2, `ablation_totals.recent_7d`:
+LLM +$11.64/close (11) vs rule +$9.01 (75) vs random −$17.91 (16) —
+and the LLM arm additionally carries 3 censored expiry winners worth up
+to $229, so adjusted it reads ≈ +$25/close over 14. **LLM ≥ rule ≫
+random on the raw read, decisively so adjusted; first positive week for
+both policy arms. No tune trigger.** Step 3: today's dropped rows are
+all small open marks (best: TLT bear call +$11.5 at c467; the biggest,
+IWM 279/274 −$45 at c464, vindicates an abstention), and the one
+regret-adjacent oddity cuts the other way: at c464 the judge REFUSED
+the 4th IWM (strength 0.789) and at c465, thirty minutes later, took
+the identical spread at LOWER strength (0.725) — the two rationales are
+individually sound but jointly inconsistent, and the c465 pick is
+today's worst marker. One flip is noise, logged here as a counter, not
+a pattern. All drops class (a); **fourteenth consecutive judge-healthy
+session.** The weak link is again class (c) infrastructure — this time
+in the OTHER sleeve:
+
+**The finding — the premium sleeve has never placed a live order.** 33
+submits across its two PREMIUM_DRY_RUN=false days (10-05, 10-06), 33
+identical rejections: 422, code 40010001, "either side or
+position_intent must be set". Mechanism, desk-verified against alpaca-py
+0.44.0 in the venv: `premium_buyer/executor.py` borrowed the credit
+sleeve's payload shape — a `legs` array with side/position_intent per
+leg — but submitted it with `order_class: "simple"`. The `legs` field is
+mleg-only ("must contain at least 2 but no more than 4 legs for
+options"); for every other order class the API requires `symbol` and
+`side`/`position_intent` at the TOP level, which the payload never set.
+DRY_RUN returns before submission, so two weeks of rehearsal could not
+catch it — the defect was live-only by construction. Every rejection
+was handled cleanly (logged, no position recorded, Brier predictions
+still journaled), so the sleeve's books are consistent — just empty
+where fills should be. The Monday comparator row for the premium sleeve
+measures a strategy that never traded.
+
+**Change tonight (one theme): single-leg orders use the single-leg
+shape.** `buy()` and `sell_to_close()` now submit top-level
+`symbol/side/position_intent/qty` with `order_class: "simple"` and no
+`legs`; limits, slip caps, cids, and the DRY_RUN branch are
+byte-identical. Both calls are also wrapped to fail CLOSED on a raised
+tool error (run.cycle() calls buy() mid-loop with no try around it; a
+schema-level rejection would have crashed the cycle after placing
+nothing). 5 new tests pin the payload shape, the literal 40010001
+rejection → None, the fail-closed path, and DRY_RUN placing no order —
+**243 passed**. Honest caveat, same class as 09-17's negative-limit fix:
+alpaca-mcp-server 2.3.0's tool signature is in the uv cache, unreadable
+from this session (proposal (h) is still open!), so I cannot prove
+offline that the tool accepts top-level `symbol`/`side`. The evidence it
+does: the tool exposes `order_class` with a documented simple/mleg
+split, and it demonstrably forwards our keys to the API untransformed.
+If I'm wrong, tomorrow's entry window logs "premium buy errored" and
+places nothing — exactly today's behavior, loudly.
+
+**Watch tomorrow.** (1) Premium entry window (13:45–19:15Z): the first
+`place_option_order` in premium.log should carry top-level
+symbol/side — a fill or an honest rest means the sleeve is finally
+live; another 40010001 (or a schema error) means the MCP tool needs
+proposal (h)'s one-line source read, and plan B is routing single-leg
+option orders through the server's stock-order tool (same /v2/orders
+endpoint upstream — team's call, it's executor territory). (2) The
+premium sleeve's weekly comparator: Monday's row is vacuous (zero
+trades); restart the clock from the first real fill. (3) IWM 4-stack
+into any gap-down — cushions are 0.8–1.5% now. (4) If the judge
+flip-flops again on an identical candidate at adjacent cycles (c464/465
+shape), that becomes a 2-day pattern worth a look at how
+`remaining_budget` enters the prompt.
+
+**Proposals (not touched, team's call).** NEW (r): the morning
+volume-screen rejects names on cumulative session volume (GLD read
+9,288 at 14:01Z vs a 50k min, passing by 16:31Z) — a time-of-day bias
+that systematically blanks early slates for quieter names; consider a
+20d-average or time-normalized floor in `screening/`. (h) ESCALATED:
+one-line read of place_option_order in the uv cache would also settle
+tonight's caveat. Standing: the 09-23 range-regime theta lab question
+(five SPY + five QQQ dropped bull puts closed profitable this week —
+evidence keeps accruing, but most drops were slot-constrained; still
+lab material, not a prompt edit), (q) dedup window, (p) multi-pick
+truncation order, (l) single-leg buy-to-close — note tonight's fix
+builds exactly the order shape (l) needs, (n)/(o)/(i)/(k).
+
 ## 2026-10-05 evening (reviewing trading day 2026-10-05 — a green five-open Monday; the judge was right all day and the brand-new rhetoric audit false-blocked one of its picks. One fix: the citation parser in `rhetoric.py` now pairs grouped citations positionally.)
 
 **Verdicts on 10-02 watch items.** (1) IWM concentration: the gap-down

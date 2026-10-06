@@ -26,12 +26,25 @@ async def buy(mcp, symbol: str, contracts: int, mid: float) -> dict | None:
         logger.info("DRY_RUN: would buy %sx %s limit %.2f (%s)", contracts, symbol, limit, cid)
         return {"id": f"dryrun-{cid}", "client_order_id": cid, "status": "dry_run",
                 "fill_price": mid}
-    result = await mcp.call("place_option_order", {
-        "legs": [{"symbol": symbol, "side": "buy", "ratio_qty": "1",
-                  "position_intent": "buy_to_open", "client_order_id": cid + "-l"}],
-        "qty": str(contracts), "order_class": "simple", "type": "limit",
-        "limit_price": str(limit), "time_in_force": "day", "client_order_id": cid,
-    })
+    # Single-leg simple orders carry symbol/side/position_intent at the TOP
+    # level — `legs` is mleg-only (alpaca-py OrderRequest: "symbol ...
+    # Required for all order classes other than mleg"; "Either side or
+    # position_intent is required for all order classes other than mleg";
+    # legs "must contain at least 2"). The legs-shaped payload borrowed from
+    # the credit sleeve was 422-rejected (code 40010001) on every one of the
+    # sleeve's 33 live submits, 2026-10-05/06.
+    try:
+        result = await mcp.call("place_option_order", {
+            "symbol": symbol, "qty": str(contracts), "side": "buy",
+            "position_intent": "buy_to_open", "order_class": "simple",
+            "type": "limit", "limit_price": str(limit),
+            "time_in_force": "day", "client_order_id": cid,
+        })
+    except Exception:
+        # Tool-level failure (e.g. schema mismatch) must not kill the cycle
+        # mid-loop — no order was placed, so fail closed like a rejection.
+        logger.exception("premium buy errored for %s", symbol)
+        return None
     payload = result.get("data", result) if isinstance(result, dict) else result
     if isinstance(payload, dict) and "error" in payload:
         logger.error("premium buy rejected: %s", payload["error"])
@@ -49,12 +62,17 @@ async def sell_to_close(mcp, symbol: str, contracts: int, mid: float) -> dict | 
     if pcfg.DRY_RUN:
         logger.info("DRY_RUN: would sell %sx %s limit %.2f", contracts, symbol, limit)
         return {"id": f"dryrun-{cid}", "status": "dry_run", "fill_price": mid}
-    result = await mcp.call("place_option_order", {
-        "legs": [{"symbol": symbol, "side": "sell", "ratio_qty": "1",
-                  "position_intent": "sell_to_close", "client_order_id": cid + "-l"}],
-        "qty": str(contracts), "order_class": "simple", "type": "limit",
-        "limit_price": str(limit), "time_in_force": "day", "client_order_id": cid,
-    })
+    # Same top-level single-leg shape as buy() — see the note there.
+    try:
+        result = await mcp.call("place_option_order", {
+            "symbol": symbol, "qty": str(contracts), "side": "sell",
+            "position_intent": "sell_to_close", "order_class": "simple",
+            "type": "limit", "limit_price": str(limit),
+            "time_in_force": "day", "client_order_id": cid,
+        })
+    except Exception:
+        logger.exception("premium close errored for %s", symbol)
+        return None
     payload = result.get("data", result) if isinstance(result, dict) else result
     if isinstance(payload, dict) and "error" in payload:
         logger.error("premium close rejected: %s", payload["error"])
