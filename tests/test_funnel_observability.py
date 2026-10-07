@@ -35,8 +35,10 @@ class FakeScreeningClient:
         )
 
 
-def _snap(price: float, volume: int = 5_000_000, atr: float | None = None) -> dict:
-    snap = {"latest_trade_price": price, "daily_volume": volume}
+def _snap(price: float, volume: int = 5_000_000, atr: float | None = None,
+          prev_volume: int | None = None) -> dict:
+    snap = {"latest_trade_price": price, "daily_volume": volume,
+            "prev_daily_volume": prev_volume}
     if atr is not None:
         snap["atr"] = atr
     return snap
@@ -156,6 +158,28 @@ def test_aligned_signal_with_elevated_vol_survives():
     sig, realized_vol = kept[0]
     assert sig.ticker == "SPY"
     assert realized_vol > 0
+
+
+def test_volume_floor_uses_prev_session_at_the_open():
+    """2026-10-07: daily_volume is the in-progress session's cumulative tape,
+    so at 13:31Z (one minute after the open) ALL 8 universe tickers were
+    rejected 'volume below min 50000' and the day's only screening window
+    produced an empty slate (GLD showed the same at 14:01Z on 2026-10-06).
+    A symbol whose PREVIOUS completed session cleared the floor must pass;
+    a symbol thin on both sessions must still be rejected."""
+    client = FakeScreeningClient({
+        # GLD's real 2026-10-06 values: 9,288 cumulative at 14:01Z.
+        "GLD": _snap(375.85, volume=9_288, atr=4.0, prev_volume=2_100_000),
+        "THIN": _snap(100.0, volume=1_000, atr=2.0, prev_volume=20_000),
+    })
+    rejections: list[dict] = []
+    kept = filter_universe(["GLD", "THIN"], client, rejections_out=rejections)
+    assert [c.symbol for c in kept] == ["GLD"]
+    assert kept[0].volume == 2_100_000  # the measure that passed the floor
+    assert len(rejections) == 1
+    assert rejections[0]["ticker"] == "THIN"
+    assert "volume" in rejections[0]["reasons"][0]
+    assert "prev day" in rejections[0]["reasons"][0]
 
 
 def test_volume_floor_calibrated_for_iex_feed():

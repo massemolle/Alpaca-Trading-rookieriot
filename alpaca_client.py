@@ -368,6 +368,7 @@ class AlpacaClient:
             latest_trade = snap.latest_trade
             latest_quote = snap.latest_quote
             daily_bar = snap.daily_bar
+            prev_bar = snap.previous_daily_bar
             result[sym] = {
                 "latest_trade_price": float(latest_trade.price) if latest_trade else None,
                 "latest_ask": float(latest_quote.ask_price) if latest_quote else None,
@@ -377,6 +378,10 @@ class AlpacaClient:
                 "daily_low": float(daily_bar.low) if daily_bar else None,
                 "daily_close": float(daily_bar.close) if daily_bar else None,
                 "daily_volume": int(daily_bar.volume) if daily_bar else None,
+                # daily_volume is CUMULATIVE for the in-progress session (near
+                # zero at the open); the previous completed session is the
+                # liquidity baseline the screening floor needs intraday.
+                "prev_daily_volume": int(prev_bar.volume) if prev_bar else None,
             }
         return result
 

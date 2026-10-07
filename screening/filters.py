@@ -34,9 +34,23 @@ def _passes_filters(
     if price < sf.min_price or price > sf.max_price:
         return None, f"price {price:.2f} outside [{sf.min_price:.0f}, {sf.max_price:.0f}]"
 
-    volume = snapshot.get("daily_volume")
+    # daily_volume is the in-progress session's CUMULATIVE tape — minutes
+    # after the open it is near zero for every symbol, which blanked entire
+    # morning slates (all 8 universe tickers rejected at 13:31Z on
+    # 2026-10-07; GLD at 14:01Z on 2026-10-06). The floor's intent is "is
+    # this symbol liquid", so the previous COMPLETED session answers it
+    # whenever today's partial tape hasn't yet. Floor value unchanged.
+    session_volume = snapshot.get("daily_volume")
+    prev_volume = snapshot.get("prev_daily_volume")
+    volume = max(
+        (v for v in (session_volume, prev_volume) if v is not None),
+        default=None,
+    )
     if volume is None or volume < sf.min_avg_volume:
-        return None, f"volume {volume} below min {sf.min_avg_volume}"
+        return None, (
+            f"volume {volume} below min {sf.min_avg_volume} "
+            f"(session {session_volume}, prev day {prev_volume})"
+        )
 
     # A one-sided quote (zero/missing bid or ask) is the WIDEST possible
     # book, but get_latest_quote maps it to spread_pct 0.0 — which would

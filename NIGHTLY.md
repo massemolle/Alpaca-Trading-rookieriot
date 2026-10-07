@@ -2,6 +2,85 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-07 evening (reviewing trading day 2026-10-07 — the breaker day the IWM stack was built for: 5 stop-outs in 24h = −$512, entries halted from 14:00Z to the close; the day's ONLY screening window (13:31Z, one minute after the open) was blanked by the cumulative-session-volume artifact. Proposal (r) is now fixed in code.)
+
+**Verdicts on 10-06 watch items.** (1) The premium-sleeve payload fix is
+confirmed live: at 17:45:24Z `place_option_order` submitted a proper
+`order_class: simple` order with top-level `symbol`/`side`/`position_intent`
+(QQQ261012C00761000, limit 3.06), no 40010001 rejection, and the contract now
+appears in the sleeve's own monitoring snapshots — the alpaca-mcp signature
+question is settled by a real accepted order, so proposal (h) is moot.
+(2) The comparator clock restarts today, the first day the strategy actually
+held anything. (3) The IWM concentration risk materialized exactly as
+written: IWM gapped −1.09% and closed −1.29%, and all four IWM bull puts
+stopped out (ids 71 −$102, 70 −$83, 67 −$75, 65 −$84), plus the long-ailing
+XLE 62/67 bear call (id 56, −$168) = five stops between 13:30Z and 14:30Z,
+−$512 realized. (4) The c465 flip-take (refused at c464 at strength 0.789,
+taken at c465 at lower strength) is id 71, the −$102 stop — the refusal was
+right and the take was wrong, but that's still ONE instance; stays on
+pattern-watch, not acted on.
+
+**Evidence.** Per analyze-regret: the judge is not tonight's weak link.
+Ablation recent_7d now reads LLM −$23.07/close raw (−$323 over 14) vs rule
+−$12.95 (−$1,165 over 90) vs random −$28.18 — but $155 of the LLM's censored
+expiry credit is missing from its total (≈ −$10.5/close corrected, slightly
+ahead of the rule), and both policy arms simply ate the same regime turn.
+The menu book vindicates the judge's drops: yesterday's refused bull puts
+mostly stopped out virtually too (c471 GLD −$77, c464 GLD −$74.5, c464 IWM
+−$111, c467 IWM −$89.5) — class (a), sound refusals, not regret. Today the
+judge made zero decisions to audit: cycle 481 (13:31:30Z) rejected ALL 8
+universe tickers "volume … below min 50000" (SPY 10,094; QQQ 12,731 — the
+two most liquid ETFs on earth), because `screening/filters.py` compared the
+floor against `daily_volume`, the in-progress session's CUMULATIVE tape,
+near zero one minute after the open. By the next cycle (14:00Z) the
+stop-streak protection (PROT_STOP_GUARD_N, max 4/24h — worked as designed)
+had halted entries for the rest of the day. Same artifact blanked GLD at
+14:01Z yesterday (logged then as proposal (r)): two consecutive days, every
+morning slate systematically thinned or emptied — a pipeline measurement
+bug, not a judgment issue.
+
+**The change (one theme).** Screening's liquidity floor now measures what it
+meant to measure: `alpaca_client.get_snapshots` additionally returns
+`prev_daily_volume` (alpaca-py's `previous_daily_bar.volume`, the previous
+COMPLETED session), and `_passes_filters` takes
+`max(session_volume, prev_daily_volume)` against the unchanged 50k floor.
+This is a measurement fix, not a loosening: the floor value, its IEX
+calibration (2026-09-01), and every downstream options-liquidity gate
+(per-leg OI ≥ 100, leg spread ≤ 12%, one-sided-quote rejection, underlying
+spread_pct) are untouched — a symbol thin on BOTH sessions still rejects,
+and the rejection reason now journals both numbers. New test
+`test_volume_floor_uses_prev_session_at_the_open` pins GLD's real 10-06
+values (9,288 session / prev-day millions ⇒ pass) and a both-thin reject;
+244 passing. Same vestigial-measurement class as the max_price=300 and
+500k-floor fixes.
+
+**Deliberately NOT changed.** (i) No reasoner/prompt edit — the evidence
+points away from the judge tonight. (ii) No per-underlying concentration
+cap added to `risk_gate.py` despite −$344 of today's −$512 coming from one
+underlying, one direction (4× IWM bull put): that's one day of evidence,
+the judge was already refusing the 5th IWM nine times running, and the
+stop-streak breaker did its job. Logged as proposal (s) below — lab first.
+(iii) Stop/profit exit parameters untouched.
+
+**Watch tomorrow.** (a) The 24h stop-streak window keeps entries halted
+until today's stops age out (~14:30Z) — expect "protections" skips through
+the 14:00Z cycle; that is correct behavior, not a bug. (b) First morning
+slates with the fixed floor: the 13:31Z cycle will now actually populate.
+Watch candidate QUALITY at the open — opening-auction option quotes are
+wide, and the defense is the existing quote gates, not the volume screen.
+If junk candidates appear in the first cycle, the answer is a small
+first-cycle delay proposal, not re-thinning the screen. (c) XLE 63/58 bull
+put (id 72) marks −$18 after XLE's 2.28%-range day; it's the only
+short-dated open risk alongside the two TLT bear calls. (d) First premium
+sleeve exit: QQQ261012C00761000 now needs its sell path proven like its buy
+path was.
+
+**Proposals (not allowed / not tonight).** (s) Per-underlying,
+per-direction concurrent cap (e.g. max 2) in `risk_gate.py` — a tightening,
+but it interacts with the judge's deliberate stacking behavior (c448/c465
+journal), so run it as a lab replay on the menu book first:
+today's cascade is the motivating case. (r) is implemented above.
+
 ## 2026-10-06 evening (reviewing trading day 2026-10-06 — the judge's fourteenth healthy session; the finding is that the premium sleeve's "first two live days" placed ZERO orders: all 33 submits were 422-rejected because its single-leg orders used the mleg `legs` payload shape. Fixed in `premium_buyer/executor.py`.)
 
 **Verdicts on 10-05 watch items.** (1) The c461 reconcile block cleared
