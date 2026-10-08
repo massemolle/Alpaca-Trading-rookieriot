@@ -17,6 +17,9 @@ Gates, in order, any one of which blocks the trade:
 4. DTE window — rejects anything outside [min_dte, max_dte], since the
    entire judged window is ~5 trading days and this keeps every position's
    fate resolved on a timescale the judges can actually see.
+5. Concentration — per-underlying dollar cap, correlation-cluster dollar
+   cap, and a count cap on live same-(underlying, direction) spreads
+   (stacked identical verticals are one bet taken N times; 2026-10-08).
 
 `should_force_close` is a separate, unconditional exit trigger (not part of
 the entry gate above): a spread opened late in the week could otherwise
@@ -50,6 +53,8 @@ def check_new_spread(
     existing_exposure: dict[str, float] | None = None,
     underlying: str | None = None,
     cluster_exposure: dict[str, float] | None = None,
+    same_direction_count: int | None = None,
+    direction: str | None = None,
 ) -> RiskCheckResult:
     reasons: list[str] = []
     limits = config.risk
@@ -109,6 +114,21 @@ def check_new_spread(
                     f"{limits.max_cluster_concentration_pct:.0%} cluster cap "
                     f"(${cluster_cap:.2f})"
                 )
+
+    # Same-direction stack cap (2026-10-08): identical-direction verticals
+    # on one underlying are one bet taken N times — the 4 concurrent IWM
+    # bull puts all stopped out inside an hour on the 10-07 gap (−$344),
+    # and the dollar concentration cap above cannot catch this (four
+    # 1-contract spreads ≈ $1.7k against a ~$19.5k cap). Count-based, live
+    # rows only, caller supplies the count keyed (underlying, direction).
+    # Omitting the kwarg keeps the gate backward compatible.
+    if same_direction_count is not None:
+        if same_direction_count >= limits.max_per_underlying_direction:
+            reasons.append(
+                f"{same_direction_count} live {underlying or 'same-underlying'} "
+                f"{direction or 'same-direction'} spread(s) already held, at the "
+                f"{limits.max_per_underlying_direction} per-underlying/direction cap"
+            )
 
     return RiskCheckResult(allowed=not reasons, reasons=reasons)
 

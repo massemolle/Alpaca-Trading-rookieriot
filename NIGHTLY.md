@@ -2,6 +2,71 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-08 evening (reviewing trading day 2026-10-08 — quiet recovery day: 16 cycles, 3 opens (SPY 765/760, XLE 63.5/58.5, XLE 64/59), 9 vindicated abstentions, +$33 realized on XLE id 72; yesterday's open proposal — the per-underlying/direction cap — is now implemented as D25.)
+
+**Verdicts on 10-07 watch items.** (1) Entries un-halted on schedule: 13:00Z
+and 13:30Z cycles were breaker-skipped ("5 stop-outs in the last 24h"), the
+14:00Z cycle traded — expected, not a bug. (2) The first post-fix open-hour
+slate never happened at 13:31Z because the breaker owned it; the prev-day
+volume fix gets its first real open-cycle test on the next unhalted morning —
+keep watching. (3) Stacking pattern recurred immediately: the judge opened
+XLE 63.5/58.5 at 16:01Z ("fresh bet, not stacked risk") and then XLE 64/59 at
+18:01Z, explicitly reasoning "deliberate add on top of 1 existing XLE spread"
+— same-name, same-direction, 30-point RSI-overbought warning in its own text.
+That is the IWM build-up shape at step 2 of 4.
+
+**Evidence.** Per analyze-regret: the judge is healthy — shadow agreed with
+all three picks, and of 13 menu rows today the only dropped-profitable is
+SPY 755/750 at +$4.50 mark (one row, class (a), noise). The dropped GLD bear
+calls (c502–c505, all marked −$19.5…−$30.9) and TLT bear calls (c499/c502,
+both virtually stopped) vindicate the abstentions. Ablation recent_7d: LLM
+−$21.93/close raw (−$9.5 corrected for $155 censored expiry credit) ≈ rule
+−$18.30, both far above random −$46.61 — no judge pattern, no signal-
+information problem. The weak link is the risk architecture: the 10-07 loss
+was not four wrong theses but ONE thesis (IWM bull put) held four times.
+Full live-book replay at a same-(underlying, direction) cap of 2: blocks IWM
+ids 67/70/71 and XLE bear call id 56 — all four realized stop-outs, −$428
+avoided (−$345 under chained counting) — while every winner survives: both
+profitable TLT bear-call 2-stacks (+$66, +$32 kept), the XLE expiry winners,
+and today's 2nd XLE add. Seven stack-entries at depth ≥3 in the book's
+history; seven losers, zero winners.
+
+**Changes (one theme: D25, a tightening).**
+1. `config.py`: new `max_per_underlying_direction` = 2 (env
+   `MAX_PER_UNDERLYING_DIRECTION`).
+2. `risk_gate.check_new_spread`: new optional `same_direction_count` /
+   `direction` kwargs → reject at the cap. Omitted = byte-identical old
+   behavior (lab and all existing callers unaffected).
+3. `bot.py`: counts live same-(underlying, direction) rows in the existing
+   D22 live-book loop and feeds the gate pre-LLM — blocked candidates never
+   reach the menu, so menu/shadow stay comparable to the real book.
+4. `pretrade_gate.py`: same count recomputed from fresh live rows at the
+   post-LLM re-check (D22 doctrine: the gate sees every real position).
+5. `tests/test_underlying_direction_cap.py` (6 tests): blocks at 2, allows
+   the 2nd add, no-op when omitted, config-driven cap, pretrade re-check
+   counts same-direction rows and ignores opposite-direction rows. 250 pass.
+
+**Why not the lab first (10-07 asked for a replay).** `backtest_lab.py`
+models no book state — it has no concept of concurrent positions, so a
+concurrency cap is untestable there. The live-book replay above IS the only
+replay possible, and it is one-sided: the cap never blocked a winner in 17
+days of history. Cap=2 (not 1) deliberately preserves the judge's "add on
+conviction" move, which has been profitable (TLT).
+
+**Deliberately not changed.** (a) The GLD bear-call candidate stream
+(generated 4 cycles running against a rising gold tape, all marked losers) —
+the judge is already refusing them on near-zero signal strength; no pipeline
+edit until a refusal fails. (b) The c464→c465 IWM flip-take stays at one
+instance, on pattern-watch. (c) Stop-streak breaker, vol floor: untouched.
+
+**Watch tomorrow.** (1) First unhalted 13:31Z cycle exercises the prev-day
+volume fix — check candidate quality at the open. (2) If the judge proposes
+a 3rd same-direction add, the journal should now show a risk_gate rejection
+with the "per-underlying/direction cap" reason — confirm the fact pattern
+reads correctly in `gate_rejections`. (3) Three XLE-correlated opens are
+live (2 bull puts + SPY); XLE reversing off RSI 78 is the realistic drawdown
+path — the cap limits any further stacking, the stops do the rest.
+
 ## 2026-10-07 evening (reviewing trading day 2026-10-07 — the breaker day the IWM stack was built for: 5 stop-outs in 24h = −$512, entries halted from 14:00Z to the close; the day's ONLY screening window (13:31Z, one minute after the open) was blanked by the cumulative-session-volume artifact. Proposal (r) is now fixed in code.)
 
 **Verdicts on 10-06 watch items.** (1) The premium-sleeve payload fix is

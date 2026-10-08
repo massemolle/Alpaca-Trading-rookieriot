@@ -324,6 +324,27 @@ gate slot via the new counter, which only decrements on a successful
 write. Same doctrine as D22, pointed the other way: the gate must see
 every real position, and no position twice.
 
+## D25 — Stacked identical verticals are one bet taken N times (2026-10-08, nightly engineer)
+
+New count cap in both gates: at most `MAX_PER_UNDERLYING_DIRECTION` (=2)
+LIVE spreads on the same (underlying, direction) pair. The existing dollar
+concentration cap (20% of equity) structurally cannot catch this — four
+1-contract IWM bull puts are ~$1.7k of max loss against a ~$19.5k cap, yet
+on the 2026-10-07 gap open all four stopped out inside an hour (−$344,
+tripping the stop-streak breaker for the rest of the session). Same-
+direction verticals on one name share a single underlying path; their
+"diversification" is zero and their stops cascade together. Replay of the
+whole live book (09-21→10-08) at cap=2: the blocked entries would have
+been IWM id 67/70/71 and XLE bear call id 56 — every one a realized
+stop-out (−$428 total, −$345 under chained counting) — and not one winner
+would have been blocked (both profitable TLT 2-stacks and the 10-08 XLE
+add survive at 2). The backtest lab models no book state, so this live
+replay is the only replay possible for a concurrency rule. Enforced
+pre-LLM in `bot.py` (counts from the D22 live-rows read, so the menu and
+shadow books see the same universe) and re-checked post-LLM in
+`pretrade_gate.py` from fresh live rows. Tightening only; omitting the new
+kwarg leaves `check_new_spread` byte-identical for existing callers.
+
 ## Open questions
 
 - [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)

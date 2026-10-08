@@ -148,11 +148,14 @@ async def _pre_trade_check_inner(
     open_count = len(fresh_open) + opened_this_cycle
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}
+    same_direction_count = 0
     for s in fresh_open:
         u = s["underlying"]
         n = int(s.get("contracts") or 1)
         max_loss_total = float(s.get("max_loss", 0)) * n
         existing_exposure[u] = existing_exposure.get(u, 0) + max_loss_total
+        if u == plan.underlying and (s.get("direction") or "") == plan.direction:
+            same_direction_count += 1
         cluster = correlation_clusters.cluster_for(u)
         if cluster is not None:
             cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
@@ -199,6 +202,8 @@ async def _pre_trade_check_inner(
         existing_exposure=existing_exposure,
         underlying=plan.underlying,
         cluster_exposure=cluster_exposure,
+        same_direction_count=same_direction_count,
+        direction=plan.direction,
     )
     if not check.allowed:
         return GateResult(

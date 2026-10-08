@@ -196,6 +196,19 @@ class OptionsRiskLimits:
         # same way (real trading data, revisit if it ever actually binds).
         default_factory=lambda: _env_float("MAX_CLUSTER_CONCENTRATION_PCT", 0.40)
     )
+    max_per_underlying_direction: int = field(
+        # Max LIVE spreads on the same (underlying, direction) pair. The
+        # dollar concentration cap above never binds for 1-contract
+        # verticals (4 stacked IWM bull puts ≈ $1.7k vs a ~$19.5k cap) —
+        # but those 4 stopped out together on one gap open (2026-10-07,
+        # −$344). Count-based because identical-direction verticals on one
+        # name share one underlying path: they win together or lose
+        # together, and the stop cascade lands in the same hour. 2 keeps
+        # the "add on conviction" move (both XLE 10-08 adds survive) while
+        # amputating the 3rd/4th stack, which in the whole live book
+        # (2026-09-21→10-08) only ever lost money.
+        default_factory=lambda: _env_int("MAX_PER_UNDERLYING_DIRECTION", 2)
+    )
     contest_end_utc: str = field(
         # Hard close-out deadline, independent of profit/loss — added
         # specifically because should_close() previously only fired on

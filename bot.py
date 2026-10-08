@@ -493,6 +493,7 @@ async def find_candidates(
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}
     open_spread_counts: dict[str, int] = {}
+    open_direction_counts: dict[tuple[str, str], int] = {}
     # Live rows, not just status='open': a spread whose close order is still
     # resting (pending_close) is risk the account carries RIGHT NOW. On
     # 2026-09-25 two such rows vanished from these dicts all afternoon — the
@@ -504,6 +505,8 @@ async def find_candidates(
         max_loss_total = float(s.get("max_loss", 0)) * n
         existing_exposure[underlying] = existing_exposure.get(underlying, 0) + max_loss_total
         open_spread_counts[underlying] = open_spread_counts.get(underlying, 0) + 1
+        dir_key = (underlying, s.get("direction") or "")
+        open_direction_counts[dir_key] = open_direction_counts.get(dir_key, 0) + 1
         cluster = correlation_clusters.cluster_for(underlying)
         if cluster is not None:
             cluster_exposure[cluster] = cluster_exposure.get(cluster, 0) + max_loss_total
@@ -586,6 +589,8 @@ async def find_candidates(
             existing_exposure=existing_exposure,
             underlying=sig.ticker,
             cluster_exposure=cluster_exposure,
+            same_direction_count=open_direction_counts.get((sig.ticker, sig.direction), 0),
+            direction=sig.direction,
         )
         if not check.allowed:
             logger.info("%s rejected by risk gate: %s", sig.ticker, check.reasons)
