@@ -462,7 +462,8 @@ def _book_context_facts(
 
 
 async def find_candidates(
-    mcp: AlpacaMCP, client: AlpacaClient, account: dict, open_count: int
+    mcp: AlpacaMCP, client: AlpacaClient, account: dict, open_count: int,
+    capacity_waived: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     universe = get_universe()
     # Funnel rejections (screening → trend/vol → sizing → risk gate) all land
@@ -579,10 +580,17 @@ async def find_candidates(
             continue
 
         total_max_loss = plan.max_loss * contracts
+        # Menu-only screening at the concurrent cap (D26, 2026-10-09): with
+        # capacity_waived the count feeding the cap check is zeroed so the
+        # gate answers "would this be executable if a slot were free?" —
+        # every OTHER limit (circuit breaker, per-spread loss, DTE,
+        # concentration, cluster, per-direction stack cap) still sees real
+        # inputs. Nothing from a waived menu can execute: the order path in
+        # run_cycle is only reachable when remaining_budget > 0.
         check = risk_gate.check_new_spread(
             equity=equity,
             daily_pl_pct=float(account.get("daily_pl_pct") or 0.0),
-            open_spreads_count=open_count,
+            open_spreads_count=0 if capacity_waived else open_count,
             max_loss=total_max_loss,
             expiration=plan.expiration,
             today=today,
@@ -777,7 +785,15 @@ async def run_cycle() -> None:
         error_text: str | None = None
         counterfactual_gate: list[dict] = []
 
-        if remaining_budget > 0 and market_open and options_level_ok and not blackout and not close_window and prot.allowed:
+        # Entry suppressions that also suppress screening; the concurrent cap
+        # deliberately does NOT (D26) — it only suppresses execution.
+        screening_ok = (
+            market_open and options_level_ok and not blackout
+            and not close_window and prot.allowed
+        )
+        menu_only = False
+
+        if remaining_budget > 0 and screening_ok:
             candidates, gate_rejections = await find_candidates(
                 mcp, client, account, len(open_spreads),
             )
@@ -946,6 +962,33 @@ async def run_cycle() -> None:
                         "reasons": [str(exc)],
                     })
 
+        elif screening_ok:
+            # Menu-only screening at the concurrent cap (D26, 2026-10-09).
+            # Before this, at-cap cycles skipped screening entirely (11 of 16
+            # market cycles on 10-09, all day on 09-15) and the evidence
+            # engine went dark exactly when the book was fullest: no menu
+            # rows, so the cap's opportunity cost was unmeasurable. Here the
+            # funnel runs with the cap check waived (cap-only; see
+            # find_candidates) and survivors are tracked virtually in the
+            # menu book. No LLM call (budget 0 — nothing to select, and no
+            # paid call for a hypothetical), no shadow/random picks (the
+            # policy arms stay matched: neither could trade these cycles),
+            # and the execution path above is unreachable. decision stays
+            # "skipped" — a skipped cycle WITH journaled candidates is the
+            # queryable marker evening_context uses to segregate these rows
+            # from the judge's regret stats.
+            menu_only = True
+            candidates, gate_rejections = await find_candidates(
+                mcp, client, account, len(open_spreads), capacity_waived=True,
+            )
+            slim_candidates = [{k: v for k, v in c.items() if k != "_plan"} for c in candidates]
+            if slim_candidates:
+                reasoning += (
+                    f" Menu-only screening ran: {len(slim_candidates)} gate-approved "
+                    f"candidate(s) tracked virtually to price the cap "
+                    f"(no LLM call, nothing executable)."
+                )
+
         if cycle_id is None:
             cycle_id = db.record_cycle(slim_candidates, decision, reasoning, error=error_text)
 
@@ -978,9 +1021,12 @@ async def run_cycle() -> None:
             max_risk_pct=config.risk.max_loss_per_spread_pct,
         )
         # Podium upgrade: record every forecast (taken + declined) and score
-        # whatever has since resolved. Non-fatal, no extra cron.
+        # whatever has since resolved. Non-fatal, no extra cron. Menu-only
+        # cycles record nothing: "declined" means the judge declined, and on
+        # those cycles the judge never saw the menu (D26).
         try:
-            credit_forecasts.record(cycle_id, candidates, p_by_ticker, llm_selected)
+            if not menu_only:
+                credit_forecasts.record(cycle_id, candidates, p_by_ticker, llm_selected)
             credit_forecasts.resolve_due()
         except Exception:
             logger.exception("credit forecast step failed (non-fatal)")

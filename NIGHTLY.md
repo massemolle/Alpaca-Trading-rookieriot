@@ -2,6 +2,73 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-09 evening (reviewing trading day 2026-10-09 — quiet green day: 16 market cycles, 3 opens (QQQ 770/775 bear call, GLD 378/373 bull put, XLF 54/49 bull put), book at the 8-concurrent cap from 15:00Z to the close — 11 of 16 cycles never screened. Theme: D26, menu-only screening at the cap.)
+
+**Verdicts on 10-08 watch items.** (1) The prev-day-volume fix finally got
+its unhalted 13:31Z open cycle (c515): three candidates screened, QQQ/SPY/GLD
+all present — no volume artifact; SPY and QQQ at full price levels confirm
+both the max_price and volume fixes jointly. Watch item retired. (2) No 3rd
+same-direction add was proposed, so the D25 cap rejection string remains
+unexercised in `gate_rejections` — stays on watch, not a bug. (3) The XLE
+mean-reversion drawdown path did not trigger (XLE −0.22% on the day); the two
+XLE bull puts are marked −$62 and −$54.5, stops armed.
+
+**Evidence (per analyze-regret).** Ablation recent_7d: LLM −$25.31/close raw
+over 13, ≈ −$11.6 corrected for the $155 censored expiry credit, vs rule
+−$16.59 over 89 and random −$45.06 over 18 → judge ≈ rule, both far above
+random; judge healthy, signals carry information. Regret: ZERO
+dropped-profitable rows today — today's only drop (c515 GLD 378/373) is
+marked −$5, vindicated so far; c517's shadow disagreement (GLD over XLF)
+was itself cap-blocked in the counterfactual gate. Lifetime drops remain
+net-correct (85 drops totaling −$765). No class (b)/(c) pattern; nothing to
+tune in the judge. The day's actual weak spot is structural: at 15:00Z the
+book hit the 8-cap and the bot stopped screening — no menu rows, no funnel
+telemetry, for 11 of 16 cycles. The same thing happened all day 2026-09-15.
+When the cap binds we lose exactly the data that could ever tell the team
+whether the cap is saving or costing money — and cap-bound afternoons are
+when that question matters most.
+
+**Changes (one theme: D26 — the cap suppresses execution, not evidence).**
+1. `bot.py`: at-cap cycles (and only when every other suppression — market,
+   blackout, protections, close window, options level — allows) now run
+   `find_candidates(..., capacity_waived=True)`: the funnel executes with
+   ONLY the concurrent-cap check waived; DTE, concentration, cluster,
+   circuit breaker, and the D25 direction cap all still see real inputs.
+   Survivors go to the menu book as usual. No LLM call (budget 0, no paid
+   call for a hypothetical), no shadow/random picks (policy arms stay
+   matched), order path unreachable (`remaining_budget > 0` still guards
+   it). Decision stays "skipped" — a skipped cycle WITH journaled
+   candidates is the path's unique, queryable signature.
+2. `shadow_book.regret_summary` + `evening_context.py`: menu rows from
+   those cycles are flagged `at_capacity` and summed into new
+   `cap_window_*` fields, EXCLUDED from the judge's `dropped_*` regret
+   stats (the judge never saw those menus — they price the cap, not the
+   judge). `resolved_dropped_cycles` skips them (no drop reasoning exists
+   to classify). `credit_forecasts.record` is skipped on menu-only cycles
+   ("declined" keeps meaning the judge declined).
+3. `tests/test_menu_only_at_cap.py` (6 tests): waiver admits at cap,
+   waiver is cap-only (2-DTE plan still rejects, no cap complaint),
+   no-waiver still rejects on the cap, regret segregation, default-arg
+   behavior preserved, resolved-cycle skip. 256 pass.
+
+**Deliberately not changed.** (a) The cap itself (8) and every other risk
+limit — untouched; D26 is pure instrumentation. When a few weeks of
+cap_window_* data exist, THAT is the evidence a cap discussion should start
+from, not tonight's single afternoon. (b) The judge's XLF rationale at c517
+cited "price below SMA50" candidates against others while taking XLF with
+the same flag unaddressed — one instance, on pattern-watch only. (c) DIA
+volume floor, XLK/TLT spread-builder failures: still parked.
+
+**Watch tomorrow.** (1) First at-cap cycle should journal "Menu-only
+screening ran: N gate-approved candidate(s)…" with decision 'skipped' and a
+populated candidates array — confirm menu rows land and marking picks them
+up. (2) MENU_BOOK_MAX_OPEN=40: menu-only afternoons add rows faster
+(dedup'd on symbol pair, so ~a few per day); if the cap-reached log line
+appears, raise the ceiling before data silently drops. (3) The three new
+opens (QQQ bear call, GLD, XLF) ride into a 10-10 session with GLD +1.57%
+momentum against the GLD 378/373 short put — fine — and QQQ 770/775 bear
+call 2.5% OTM; stops armed either way.
+
 ## 2026-10-08 evening (reviewing trading day 2026-10-08 — quiet recovery day: 16 cycles, 3 opens (SPY 765/760, XLE 63.5/58.5, XLE 64/59), 9 vindicated abstentions, +$33 realized on XLE id 72; yesterday's open proposal — the per-underlying/direction cap — is now implemented as D25.)
 
 **Verdicts on 10-07 watch items.** (1) Entries un-halted on schedule: 13:00Z

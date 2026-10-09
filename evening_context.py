@@ -104,7 +104,16 @@ def main() -> None:
             ),
             "menu_regret": shadow_book.regret_summary(
                 _q(cur, f"""select * from {s}.shadow_positions where policy='menu'
-                            order by opened_at desc limit 100""")
+                            order by opened_at desc limit 100"""),
+                # D26: cycles screened menu-only at the concurrent cap. A
+                # 'skipped' decision with a non-empty candidates array is
+                # that path's unique signature — every other candidate-
+                # bearing path ends opened/abstained/gate_blocked/error.
+                capacity_cycles={
+                    r["id"] for r in _q(cur, f"""select id from {s}.cycles
+                        where decision = 'skipped'
+                        and jsonb_array_length(candidates) > 0""")
+                },
             ),
             "snapshots_recent": _q(cur, f"select * from {s}.account_snapshots order by snapshot_at desc limit 10"),
             "lab_summary": _q(cur, f"select * from {s}.lab_summary order by id"),

@@ -196,13 +196,19 @@ def open_menu_book(
         logger.exception("menu book open failed (non-fatal)")
 
 
-def regret_summary(menu_rows: list[dict]) -> dict:
+def regret_summary(menu_rows: list[dict], capacity_cycles: set[int] | None = None) -> dict:
     """Pure regret computation for the evening context.
 
     outcome_usd per row: realized_pnl when closed; (credit − mark) × contracts
     while open and marked; None when never marked. 'Dropped' = the LLM did not
     take it (whatever the rule/random books did).
+
+    capacity_cycles (D26, 2026-10-09): cycle ids screened menu-only while the
+    real book sat at the concurrent cap. Their rows are flagged at_capacity
+    and summed into the cap_window_* fields INSTEAD of dropped_* — the judge
+    never saw those menus, so they price the cap, not the judge.
     """
+    caps = capacity_cycles or set()
     table = []
     for r in menu_rows:
         credit = float(r["credit_received"])
@@ -222,16 +228,22 @@ def regret_summary(menu_rows: list[dict]) -> dict:
             "expiration": str(r.get("expiration")),
             "status": r.get("status"),
             "taken_by_llm": bool(r.get("same_as_llm")),
+            "at_capacity": r.get("cycle_id") in caps,
             "outcome_usd": round(outcome, 2) if outcome is not None else None,
         })
-    dropped = [t for t in table if not t["taken_by_llm"] and t["outcome_usd"] is not None]
+    dropped = [t for t in table
+               if not t["taken_by_llm"] and not t["at_capacity"] and t["outcome_usd"] is not None]
     taken = [t for t in table if t["taken_by_llm"] and t["outcome_usd"] is not None]
     dropped_pos = [t for t in dropped if t["outcome_usd"] > 0]
+    cap_rows = [t for t in table if t["at_capacity"] and t["outcome_usd"] is not None]
+    cap_pos = [t for t in cap_rows if t["outcome_usd"] > 0]
     return {
         "note": (
             "Every gate-approved candidate is virtually tracked (policy='menu'), picked or "
             "not. Regret = profitable candidates the LLM dropped. One lucky miss is noise — "
-            "act on patterns, and read the journal's cited reasoning for those cycles first."
+            "act on patterns, and read the journal's cited reasoning for those cycles first. "
+            "cap_window_* rows (at_capacity) were screened menu-only while the book sat at "
+            "the concurrent cap — the judge never saw them; they price the cap, not the judge."
         ),
         "rows": table,
         "taken_count": len(taken),
@@ -241,6 +253,10 @@ def regret_summary(menu_rows: list[dict]) -> dict:
         "dropped_positive_count": len(dropped_pos),
         "dropped_positive_total_usd": round(sum(t["outcome_usd"] for t in dropped_pos), 2),
         "best_dropped": max(dropped, key=lambda t: t["outcome_usd"], default=None),
+        "cap_window_count": len(cap_rows),
+        "cap_window_total_usd": round(sum(t["outcome_usd"] for t in cap_rows), 2),
+        "cap_window_positive_count": len(cap_pos),
+        "cap_window_positive_total_usd": round(sum(t["outcome_usd"] for t in cap_pos), 2),
     }
 
 
@@ -362,6 +378,9 @@ def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 40) -> list[int]
         if (
             cid is not None
             and not r.get("taken_by_llm")
+            # at_capacity rows (D26) have no drop reasoning to classify —
+            # their cycle's journal only holds the cap-skip message.
+            and not r.get("at_capacity")
             and str(r.get("status") or "").startswith("closed")
             and (r.get("outcome_usd") or 0) > 0
             and cid not in out

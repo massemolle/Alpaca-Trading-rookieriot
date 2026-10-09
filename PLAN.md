@@ -358,3 +358,26 @@ kwarg leaves `check_new_spread` byte-identical for existing callers.
 ## Key references
 
 [Agentic Trading survey](https://arxiv.org/html/2605.19337v1) · [TradingAgents](https://arxiv.org/abs/2412.20138) · [FinMem](https://suchow.io/assets/docs/yu2024finmem.pdf) · [ContestTrade](https://arxiv.org/pdf/2508.00554) · [FinCon] · [KTD-Fin](https://arxiv.org/abs/2605.28359) · [TradeTrap](https://arxiv.org/html/2512.02261v1) · [Standard Benchmarks Fail](https://arxiv.org/abs/2502.15865) · [MAST](https://arxiv.org/pdf/2503.13657) · [Profit Mirage](https://arxiv.org/pdf/2510.07920) · [Constrained LLM agents](https://arxiv.org/html/2604.26747v1) · [Agent Trading Arena](https://arxiv.org/pdf/2502.17967) · [AgentAbstain] · [Alpaca MCP server](https://github.com/alpacahq/alpaca-mcp-server) · [Alpaca options docs](https://docs.alpaca.markets/docs/options-trading) · [Alpaca data plans](https://alpaca.markets/data)
+
+## D26 — The cap suppresses execution, not evidence (2026-10-09, nightly engineer)
+
+At-cap cycles now run menu-only screening: the full funnel (screening,
+trend/vol filters, protections, spread builder, sizing, risk gate) executes
+with ONLY the concurrent-cap check waived (`find_candidates(...,
+capacity_waived=True)` zeroes the count feeding that one reason; circuit
+breaker, per-spread loss, DTE, concentration, cluster, and the D25
+per-direction cap all still see real inputs), and survivors are tracked
+virtually in the menu book. No LLM call (budget 0 — nothing to select, no
+paid call for a hypothetical), no shadow/random picks (the policy arms stay
+matched: neither could trade those cycles), and the order path stays
+unreachable (`remaining_budget > 0` still guards it), so no risk limit
+changed. Evidence: on 2026-10-09 the book hit the 8-cap at 15:00Z and 11 of
+16 market cycles skipped screening entirely (same on 2026-09-15) — the
+evidence engine went dark exactly when the book was fullest, and the cap's
+opportunity cost was unmeasurable in principle. A skipped cycle WITH
+journaled candidates is the queryable signature of this path;
+`evening_context.py` uses it to route those menu rows into new
+`cap_window_*` fields instead of the judge's `dropped_*` regret stats (the
+judge never saw those menus — they price the cap, not the judge), and
+`credit_forecasts` records nothing on these cycles ("declined" must keep
+meaning the judge declined).
