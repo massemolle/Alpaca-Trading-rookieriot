@@ -381,3 +381,31 @@ journaled candidates is the queryable signature of this path;
 judge never saw those menus — they price the cap, not the judge), and
 `credit_forecasts` records nothing on these cycles ("declined" must keep
 meaning the judge declined).
+
+## D27 — Legs with a working close order are off-limits to new opens (2026-10-12, nightly engineer)
+
+The spread builder's held-leg collision logic (09-18) deliberately allowed
+stacking the identical spread — "re-adding on the SAME side keeps matching
+open intents." That exemption has a hole: once the position's CLOSE order is
+working at the broker (status `pending_close`), the close is buying the old
+short and selling the old long, so a new open that sells that short or buys
+that long is opposite-side orders on one contract — Alpaca 403-rejects it as
+a potential wash trade (code 40310000). Live, cycle 536 (2026-10-12): the
+15:30:08Z profit-target close for XLF 54/49 rested; at 15:31:51Z the judge's
+XLF add rebuilt the identical 54/49 legs and the submit was rejected,
+recording the judged arm's pick as decision `error` — the fourth
+infrastructure erasure of a judged pick (c413 phantom cap, c431 dedup
+window, c449 audit mis-pair). It was also economically incoherent: $0.23
+debit to close while re-selling the same spread at a $0.21 minimum credit.
+The same shape appeared in the menu at c533 (XLE 64/59 rebuilt while that
+spread's close rested) and in the 10-02 c431 incident (IWM identical-leg
+re-propose) — the builder re-proposes the legs it already holds whenever
+the underlying barely moves between cycles. Fix: `bot.find_candidates`
+collects the legs of `pending_close` rows into `closing_short_symbols` /
+`closing_long_symbols` and `spread_builder` skips any pair whose short leg
+has a working buy-to-close or whose long leg has a working sell-to-close,
+falling through to the next short in delta order (c538's 55/50, which
+filled cleanly, is exactly that fallback). The merely-open identical
+restack stays allowed — the cycle-267 exemption is unchanged. Construction-
+time narrowing only; no risk limit or executor path touched; defaults keep
+`build_spread` byte-identical for the lab and existing callers.

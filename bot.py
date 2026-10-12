@@ -521,6 +521,15 @@ async def find_candidates(
     # above now uses (2026-09-25).
     held_long_symbols: set[str] = set()
     held_short_symbols: set[str] = set()
+    # Legs with a WORKING close order (pending_close): the close buys the
+    # old short and sells the old long, so a new plan selling that short or
+    # buying that long is opposite-side orders on one contract — Alpaca
+    # 403-rejects it as a potential wash trade (cycle 536, 2026-10-12: the
+    # judge's XLF add rebuilt the exact 54/49 legs whose profit-target
+    # close had rested 103 seconds earlier). The builder skips these pairs
+    # the same way it skips held-leg collisions.
+    closing_short_symbols: set[str] = set()
+    closing_long_symbols: set[str] = set()
     for s in db.get_live_spreads():
         for key, held in (
             ("short_symbol", held_short_symbols),
@@ -530,6 +539,15 @@ async def find_candidates(
         ):
             if s.get(key):
                 held.add(s[key])
+        if s.get("status") == "pending_close":
+            for key, closing in (
+                ("short_symbol", closing_short_symbols),
+                ("call_short_symbol", closing_short_symbols),
+                ("long_symbol", closing_long_symbols),
+                ("call_long_symbol", closing_long_symbols),
+            ):
+                if s.get(key):
+                    closing.add(s[key])
 
     candidates = []
     gate_rejections: list[dict] = list(funnel_rejections)
@@ -553,6 +571,8 @@ async def find_candidates(
                 spot_price=spot_mid, realized_vol=realized_vol,
                 held_long_symbols=held_long_symbols,
                 held_short_symbols=held_short_symbols,
+                closing_short_symbols=closing_short_symbols,
+                closing_long_symbols=closing_long_symbols,
             )
         except Exception:
             logger.exception("Failed to build spread for %s", sig.ticker)

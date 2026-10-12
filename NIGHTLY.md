@@ -2,6 +2,119 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-12 evening (reviewing trading days 2026-10-10 AND 2026-10-12 — no session ran Friday evening, so this entry covers both; a green Monday: +$91 realized on three profit-target closes, two opens, and the day's defect in one line: the judge's 15:31Z XLF add rebuilt the EXACT legs whose profit-target close had rested 103 seconds earlier, and Alpaca correctly 403'd it as a wash trade. Theme: D27, close-order legs are off-limits to new opens.)
+
+**Note on the gap.** The evening cron did not fire on 10-10 (its log jumps
+from the 10-09 push straight to tonight's 21:00Z start). Not mine to touch
+(crontab is out of bounds) — flagged for the team. Friday's cycles are
+reviewed here alongside Monday's.
+
+**Verdicts on 10-09 watch items.** (1) D26 CONFIRMED live, twice: Friday's
+at-cap cycles journaled menu-only screening and the c532 rows landed with
+`at_capacity: true`, correctly segregated into `cap_window_*`; today's c539
+(17:00Z, book momentarily 8/8) journaled "Menu-only screening ran: 4
+gate-approved candidate(s)" with decision `skipped`. The path works
+end-to-end; watch item retired. (2) No MENU_BOOK_MAX_OPEN ceiling line in
+the log — dedup is holding row growth down; stays on passive watch. (3) The
+10-09 opens resolved well: QQQ 770/775 bear call closed +$34 at its target
+(14:00Z today), XLF 54/49 closed +$21 (17:30Z), GLD 378/373 still open,
+marked −$26 against a −0.63% GLD day. The D25 3rd-same-direction rejection
+string remains unexercised.
+
+**The day (10-12).** Quiet mixed tape (SPY −0.06%, XLE +1.47% the biggest
+universe move, GLD −0.63%). Three profit-target closes filled: QQQ 770/775
++$34, SPY 765/760 +$36, XLF 54/49 +$21 — +$91 realized. Two opens: SPY
+768/763 bull put (c537, $61 fill) and XLF 55/50 bull put (c538, $53 fill, a
+deliberate second XLF on the slate-standout 0.78 signal). One error (c536,
+below). Five reserve-bar abstentions (c540–544), all the familiar sound
+shape. New protections firing worth knowing: IWM is symbol-locked
+("low_profit: IWM realized $-309 over 7d, floor $-300") — the chronic-loser
+lock doing its job after the 10-07 cascade. The XLE 64/59 close (limit 0.32,
+14:00Z) rested through the bell — its row sat `pending_close` all afternoon,
+which is load-bearing for tonight's finding.
+
+**Evidence (per analyze-regret).** Ablation recent_7d: LLM −$18.15/close
+raw over 13, ≈ −$12 corrected for the $80 censored expiry credit, vs rule
+−$19.49 over 78 and random −$41.84 over 16 → LLM ≳ rule ≫ random; judge
+healthy, signals carry information, no tune trigger. Regret: today's drops
+are all small open marks (best: SPY 766/761 +$9 at c542, XLE 64/59 +$7 at
+c535 — class (a) noise); Friday's dropped GLD bear calls (c504/c505) closed
+virtually stopped at −$105/−$87, vindicating those refusals. No (b)/(c)
+pattern — the weak link is again class (c) infrastructure, and this time
+the mechanism is fully desk-verified:
+
+**The finding — the builder re-proposes legs that are mid-close.** At
+15:30:08Z the profit-target close for XLF 54/49 (id 78) was submitted —
+buy-to-close the 54P, sell-to-close the 49P — and RESTED (`pending_close`).
+At 15:31:51Z, c536's judged pick ("deliberate add on top of 1 existing XLF
+spread") rebuilt the IDENTICAL 54/49 legs, so the open order sold the exact
+contract the close was buying and bought the exact contract the close was
+selling. Alpaca 403'd it: code 40310000, "potential wash trade detected …
+opposite side market/stop order exists", and the cycle recorded decision
+`error` — the FOURTH judged-arm pick erased by infrastructure (c413 phantom
+cap, c431 dedup window, c449 audit mis-pair). The broker was right: had
+both orders filled we'd have paid $0.23 to close while re-selling the same
+spread at a $0.21 minimum credit — a guaranteed-negative round trip that
+re-arms the same risk. This is not a one-off shape: c533's menu row (XLE
+64/59) was the identical legs of the XLE spread whose close was resting at
+14:00Z (had the judge picked XLE, same 403), and the 10-02 c431 incident
+was the same re-propose on IWM. The builder re-offers the legs it already
+holds whenever the underlying barely moves between cycles; the 09-18
+held-leg collision logic deliberately exempts identical-leg stacking
+("same side keeps matching intents") — correct while the position sits
+still, wrong the moment its close order is working. Self-healing was luck
+again: c538 rebuilt at 55/50 (XLF had ticked up) and filled at $53 — more
+credit than c536's $23.5 estimate.
+
+**Changes (one theme: D27).**
+1. `bot.py find_candidates`: the existing live-book loop now also collects
+   the legs of `pending_close` rows into `closing_short_symbols` /
+   `closing_long_symbols` (call_* legs included) and passes them to the
+   builder. Only `pending_close` rows qualify — a merely-open position has
+   no working close order and keeps its cycle-267 stacking exemption.
+2. `spread_builder.py`: `build_spread`/`_build_for_expiration` accept the
+   two sets (frozenset defaults — lab and every existing caller
+   byte-identical) and the candidate walk skips any pair whose short leg
+   has a working buy-to-close or whose long leg has a working
+   sell-to-close, logging the reason and falling through to the next short
+   in delta order — the same mechanism, and the same fallback, as the
+   held-leg collision skip. c538's clean 55/50 fill is exactly what the
+   fallback produces.
+3. `tests/test_close_order_leg_collision.py` (5 tests): closing-short
+   blocks the pair, closing-long blocks the pair but allows same-side
+   short reuse, the literal c536 shape (held + closing together) builds
+   the next clean pair instead of erroring, default behavior unchanged,
+   and the bot wiring pinned in source (pending_close-only, both sets at
+   every build_spread call site). 261 pass.
+
+**Deliberately not changed.** (a) Mapping broker rejections (40310000,
+40010001) to a journaled decision instead of generic `error` — adjacent to
+submission error handling like proposal (q); left with the team. (b) The
+theoretical cross-sleeve overlap: the premium sleeve holds long QQQ calls
+the credit sleeve's held-leg sets never see; a QQQ bear call shorting that
+exact contract would collide the same way. No occurrence yet (the sleeves
+target different deltas) — logged as proposal (t), needs a read of the
+premium sleeve's positions from `find_candidates`, which crosses sleeve
+boundaries. (c) The judge's "add on conviction" behavior itself — D25 caps
+it at 2 and the adds have been profitable (today's XLF add is the pattern
+working).
+
+**Watch tomorrow.** (1) XLE 64/59's close died at the bell → the resolver
+reverts it to `open`, its close re-fires ~14:00Z and rests again → XLE sits
+`pending_close` during afternoon screening. If the builder re-proposes XLE,
+the log should show "has a buy-to-close order working … trying next short"
+and a DIFFERENT strike pair in the menu — D27's first live test, likely
+tomorrow. (2) GLD 378/373 (short 1.0% ITM-adjacent after GLD's −0.63% day,
+marked −$26) — the stop fires on another leg down; its legs are near-money
+so the stop should fill. (3) IWM's symbol lock expires as the 7d window
+rolls past the 10-07 stops (~10-14) — expect IWM back in slates then, not
+before.
+
+**Proposals (team's call).** NEW (t): cross-sleeve held-leg visibility (see
+above). Standing: (q) dedup window, (s) implemented as D25, (l)
+single-leg buy-to-close, (n) expiry P&L backfill, (o) closed_force status,
+(p) multi-pick truncation order, (h) MCP tool source read, (i)/(k).
+
 ## 2026-10-09 evening (reviewing trading day 2026-10-09 — quiet green day: 16 market cycles, 3 opens (QQQ 770/775 bear call, GLD 378/373 bull put, XLF 54/49 bull put), book at the 8-concurrent cap from 15:00Z to the close — 11 of 16 cycles never screened. Theme: D26, menu-only screening at the cap.)
 
 **Verdicts on 10-08 watch items.** (1) The prev-day-volume fix finally got

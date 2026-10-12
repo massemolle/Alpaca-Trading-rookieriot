@@ -216,6 +216,8 @@ async def build_spread(
     *,
     held_long_symbols: frozenset[str] | set[str] = frozenset(),
     held_short_symbols: frozenset[str] | set[str] = frozenset(),
+    closing_short_symbols: frozenset[str] | set[str] = frozenset(),
+    closing_long_symbols: frozenset[str] | set[str] = frozenset(),
 ) -> SpreadPlan | None:
     """signal_direction is the vendored Signal's own 'long'/'short' field.
     `spot_price` is the underlying's current mid quote, `realized_vol` the
@@ -234,7 +236,17 @@ async def build_spread(
     order ever filled it would strip the hedge leg off the existing spread.
     Colliding leg pairs are therefore skipped at construction; re-adding to
     an existing position on the SAME side (e.g. stacking the identical
-    spread) keeps matching open intents and stays allowed.
+    spread) keeps matching open intents and stays allowed — UNLESS a close
+    order is working on that contract. `closing_short_symbols` /
+    `closing_long_symbols` are the legs of spreads whose close order is in
+    flight (pending_close): the close BUYS the old short and SELLS the old
+    long, so a new plan that sells that short or buys that long puts
+    opposite-side orders on the same contract and Alpaca 403-rejects it as
+    a potential wash trade (live, cycle 536 2026-10-12: XLF 54/49 rebuilt
+    at 15:31Z while the 15:30Z profit-target close on the identical legs
+    rested — code 40310000). Economically it was a close-and-reopen of the
+    same position at a worse net price; the collision skip makes the next
+    strike pair the fallback, which is what filled cleanly at cycle 538.
 
     Expirations inside the DTE window are tried nearest-first (most theta
     decay realized within the judged period): the first one that builds an
@@ -262,6 +274,8 @@ async def build_spread(
             is_bull_put, option_type, spot_price, realized_vol, today,
             held_long_symbols=held_long_symbols,
             held_short_symbols=held_short_symbols,
+            closing_short_symbols=closing_short_symbols,
+            closing_long_symbols=closing_long_symbols,
         )
         if plan is None:
             continue
@@ -297,6 +311,8 @@ async def _build_for_expiration(
     *,
     held_long_symbols: frozenset[str] | set[str] = frozenset(),
     held_short_symbols: frozenset[str] | set[str] = frozenset(),
+    closing_short_symbols: frozenset[str] | set[str] = frozenset(),
+    closing_long_symbols: frozenset[str] | set[str] = frozenset(),
 ) -> SpreadPlan | None:
     """One expiration's worth of the original build: delta-target the short,
     snap the long, quote the shortlist, walk the liquid shorts. Unchanged
@@ -406,6 +422,13 @@ async def _build_for_expiration(
                 "sell_to_close), trying next short", ticker, cand["symbol"],
             )
             continue
+        if cand["symbol"] in closing_short_symbols:
+            logger.info(
+                "%s short leg %s has a buy-to-close order working (selling "
+                "against it is a wash trade at the broker), trying next short",
+                ticker, cand["symbol"],
+            )
+            continue
         cand_strike = float(cand["strike_price"])
         cand_long_strike = snap_long_strike(cand_strike)
         if cand_long_strike is None:
@@ -415,6 +438,13 @@ async def _build_for_expiration(
             logger.info(
                 "%s long leg %s is a held short leg (broker would infer "
                 "buy_to_close), trying next short", ticker, cand_long["symbol"],
+            )
+            continue
+        if cand_long["symbol"] in closing_long_symbols:
+            logger.info(
+                "%s long leg %s has a sell-to-close order working (buying "
+                "against it is a wash trade at the broker), trying next short",
+                ticker, cand_long["symbol"],
             )
             continue
         cand_long_snap = snap_by_symbol.get(cand_long["symbol"], {})
