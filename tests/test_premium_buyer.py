@@ -86,6 +86,44 @@ def test_rhetoric_thousands_separator_parsed():
     assert rhetoric.audit_values(cands, "carrying $1,257.5 [IWM_OPEN_MAX_LOSS]") == []
 
 
+# Clause-level tags (c552 2026-10-13 false block): a lone tag trailing a
+# "k=v, k=v" clause pairs with the nearest number, but the fact itself is
+# quoted correctly a few words back — rescue, don't flag.
+
+def _spy_strength_cands():
+    return [{"ticker": "SPY", "facts": [
+        {"fact_id": "SPY_SIGNAL_STRENGTH", "value": 0.141},
+    ]}]
+
+
+def test_rhetoric_clause_level_tag_rescued_when_fact_quoted_in_clause():
+    # Verbatim c552 fragment that produced the false block.
+    text = ("GLD (strength 0.305, ranging) and SPY (strength 0.141, "
+            "ADX=9.52 [SPY_SIGNAL_STRENGTH]) are both weak signals")
+    assert rhetoric.audit_values(_spy_strength_cands(), text) == []
+
+
+def test_rhetoric_lone_mismatch_without_clause_quote_still_flags():
+    flags = rhetoric.audit_values(
+        _spy_strength_cands(), "SPY reads ADX=9.52 [SPY_SIGNAL_STRENGTH] this cycle")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_clause_rescue_stops_at_sentence_boundary():
+    # The correct quote lives in the PREVIOUS sentence — no rescue.
+    text = ("SPY strength is 0.141 on this slate. "
+            "ADX=9.52 [SPY_SIGNAL_STRENGTH] confirms the dead trend")
+    flags = rhetoric.audit_values(_spy_strength_cands(), text)
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_clause_rescue_leaves_multi_number_groups_strict():
+    # A swapped slash-pair must still flag even with matching numbers nearby.
+    text = "credit $85.5, max loss $414.5 — i.e. $414.5/$85.5 [IWM_CREDIT_EST][IWM_MAX_LOSS]"
+    flags = rhetoric.audit_values(_iwm_cands(), text)
+    assert len(flags) == 2 and all("misquotes" in f for f in flags)
+
+
 def test_alignment_blocks_self_contradiction():
     flags = rhetoric.audit_alignment([{"ticker": "SPY", "p_move": 0.40}], min_p=0.55)
     assert flags and "contradicts belief" in flags[0]

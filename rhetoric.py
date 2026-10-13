@@ -22,6 +22,26 @@ _CITE_GROUP = re.compile(
     rf"((?:\[{_TAG}(?:\s*,\s*{_TAG})*\])+)"
 )
 _TAG_RE = re.compile(_TAG)
+_NUM_RE = re.compile(_NUM)
+# Sentence/clause boundary for the lookbehind rescue below — dot must be
+# followed by whitespace so decimals ("0.141") never split a clause.
+_CLAUSE_BREAK = re.compile(r"[.;!?]\s")
+
+
+def _clause_quotes_fact(text: str, group_start: int, actual: float, close, window: int = 80) -> bool:
+    """True if a number matching `actual` appears earlier in the SAME clause.
+    Clause-level tags ("strength 0.141, ADX=9.52 [SPY_SIGNAL_STRENGTH]",
+    c552 2026-10-13) put the bracket next to the wrong number while the fact
+    itself is quoted correctly a few words back — that is sloppy placement,
+    not fabricated evidence, and must not zero a selection."""
+    seg = text[max(0, group_start - window):group_start]
+    breaks = list(_CLAUSE_BREAK.finditer(seg))
+    if breaks:
+        seg = seg[breaks[-1].end():]
+    for n in _NUM_RE.findall(seg):
+        if close(float(n.replace("$", "").replace(",", "")), actual):
+            return True
+    return False
 
 
 def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05) -> list[str]:
@@ -52,6 +72,13 @@ def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05
         if len(nums) == len(tags):
             for quoted, fid in zip(nums, tags):
                 if fid in known and not close(quoted, known[fid]):
+                    # Lone pairs only: the positional pairing of multi-number
+                    # groups (85.5/414.5 [A][B]) stays strict so a swapped
+                    # pair still flags.
+                    if len(nums) == 1 and _clause_quotes_fact(
+                        reasoning, m.start(), known[fid], close
+                    ):
+                        continue
                     flags.append(f"misquotes [{fid}]: says {quoted}, fact is {known[fid]}")
         elif len(nums) == 1 and known:
             # One number against several tags ("$479.5 [X_CREDIT, X_MAX_LOSS]"):

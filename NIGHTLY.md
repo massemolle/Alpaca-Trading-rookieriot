@@ -2,6 +2,98 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-13 evening (reviewing trading day 2026-10-13 — a dead-quiet, zero-trade day: 13 judged cycles, 13 vindicated abstentions on a one-slot book, and D27's first live test passed all afternoon; the one defect is that the rhetoric audit's first post-fix block was a FALSE one. Theme: clause-level tags in `rhetoric.py`.)
+
+**Verdicts on 10-12 watch items.** (1) D27 CONFIRMED live, emphatically:
+both XLE profit-target closes re-fired ~14:00Z and rested to the bell, and
+every afternoon cycle from 14:02Z onward logged "has a buy-to-close order
+working (selling against it is a wash trade at the broker), trying next
+short" for BOTH shorts (XLE261023P00064000 and P00063500), building
+alternate pairs instead — c558's menu row is XLE 65/60 and c561's candidate
+a fresh 10-23 pair, zero wash-trade 403s all day. Eleven clean firings on
+day one; watch item retired. (2) GLD 378/373: GLD −0.14% on the day, no
+stop, still open — quiet. (3) IWM symbol lock still held today
+("low_profit: IWM realized $-344 over 7d" in every journal); the 7d window
+rolls past the 10-07 stops tomorrow — expect IWM back in slates then.
+
+**The day.** As dead as a tape gets: SPY 0.00% move on a 0.36% range at
+0.67× 20d volume; XLE +1.75% the only real mover — good for its two bull
+puts, whose profit targets fired and whose closes rested all day (the
+familiar quote-dead-leg shape; both rows reverted to `open` at the bell,
+snapshot open-count walked 5 → 7). Thirteen judged cycles, thirteen
+abstentions, zero opens, zero closes, zero realized; every rationale is the
+familiar reserve-bar shape — one slot left, sub-0.36-strength SPY/GLD
+already held, XLE at ~6% credit-to-risk on RSI 86 — and all of it reads
+sound against a 0.00% SPY day. Equity $97,915.66 (−$11 on the day).
+
+**Evidence (per analyze-regret).** Step 2, ablation recent_7d: LLM
+−$34.70/close raw over 10 (≈ −$26.7 corrected for the $80 censored expiry
+credit) vs rule −$32.77 over 62 vs random −$44.64 over 14 → LLM ≈ rule,
+both clearly above random, on a losing week for every arm (the 10-07/08
+stop cluster still dominates the window). No tune trigger. Step 3, regret:
+seven dropped rows today, best +$2.00 (SPY 765/760, c553 — noise), the
+rest marking −$3 to −$37; every abstention vindicated so far, all class
+(a). No (b)/(c) judge pattern. The weak link is again class (c)
+infrastructure:
+
+**The finding — the audit's first post-fix block was a false one.** The
+10-05 watch item said that with the parser fixed, a RHETORIC AUDIT block
+"should now mean a *real* misquote; read it verbatim." Read verbatim,
+today's 15:01Z block (c552) wasn't one: the judge wrote "SPY (strength
+0.141, ADX=9.52 [SPY_SIGNAL_STRENGTH])" — the fact value quoted correctly
+twelve characters earlier in the same clause, the tag trailing the clause
+next to the ADX number. The parser's number-run joins only on slashes, so
+it carved out "9.52 [SPY_SIGNAL_STRENGTH]" as a lone 1:1 pair → "misquotes
+… says 9.52, fact is 0.141" → selection zeroed. Cost today: zero — the
+decision was an abstention anyway, so the audit had nothing to erase (the
+BLOCKED prefix on an abstain rationale is itself misleading, noted below).
+But had the judge selected, this would have been the FIFTH judged pick
+erased by infrastructure, and it is the second false block of the same
+mis-pairing class (c449, 10-05) — same class, two days, over the pattern
+bar, and it degrades the one guarantee the audit owes us: that a block
+means fabricated evidence.
+
+**Change (one theme): clause-level tag rescue in `rhetoric.py`.** A LONE
+number/tag pair that mismatches now looks back within its own clause (an
+80-char window, cut at the last sentence boundary — matched as punctuation
+followed by whitespace, so decimals like 0.141 never split a clause) for a
+number that DOES match the fact; if one exists the flag is skipped (sloppy
+tag placement, not fabrication), if none exists it still flags.
+Multi-number groups keep strict positional pairing — a swapped
+credit/max-loss pair still double-flags even with the correct numbers
+quoted nearby (pinned by test). Same design precedent as the 10-05 fix:
+narrows what the audit can false-block, leaves every true-misquote path
+intact, touches no risk limit. 4 new tests in `tests/test_premium_buyer.py`
+including the verbatim c552 fragment as a regression; **265 passed** (was
+261).
+
+**Deliberately not changed.** (a) The "[TAG value]"-inside citation style
+is still invisible to the audit — the 10-05 residual gap, no new evidence
+tonight. (b) `bot.py` prefixes "[RHETORIC AUDIT BLOCKED…]" onto abstention
+rationales too, where there is no selection to block — cosmetic, but it
+misleads the evening reader (I initially read c552 as an erased pick);
+one-line fix adjacent to the journaling path, left for the team. (c) No
+builder credit floor despite another day of ~6% credit-to-risk XLE
+candidates: the judge refuses them consistently and today's dropped XLE
+65/60 marks −$21.5 — the refusals are WINNING, so there is nothing to fix
+until a dropped low-credit candidate ever closes a meaningful winner.
+
+**Watch tomorrow.** (1) IWM's lock expires as the 7d window rolls — the
+first post-lock IWM candidate deserves a careful read of the judge's
+rationale (the 10-07 cascade started as exactly this shape). (2) The two
+XLE closes re-fire ~14:00Z and likely rest again — day 3+ of earned-but-
+unbookable profit; if XLE drifts to expiry (10-23) this lands in the
+censored column, proposal (l)/(n) territory, evidence keeps accruing. (3)
+Any new RHETORIC AUDIT block — with tonight's rescue, a block should
+(again) mean a real misquote; read it verbatim.
+
+**Proposals (team's call).** Standing, unchanged: (t) cross-sleeve leg
+visibility, (q) dedup window, (l) single-leg buy-to-close (today adds two
+more rested-winner exhibits), (n) expiry P&L backfill, (o) closed_force
+status, (p) multi-pick truncation order, (h)/(i)/(k). NEW, one-liner: stop
+prefixing "RHETORIC AUDIT BLOCKED" onto rationales when `raw_selected` was
+already empty (see (b) above).
+
 ## 2026-10-12 evening (reviewing trading days 2026-10-10 AND 2026-10-12 — no session ran Friday evening, so this entry covers both; a green Monday: +$91 realized on three profit-target closes, two opens, and the day's defect in one line: the judge's 15:31Z XLF add rebuilt the EXACT legs whose profit-target close had rested 103 seconds earlier, and Alpaca correctly 403'd it as a wash trade. Theme: D27, close-order legs are off-limits to new opens.)
 
 **Note on the gap.** The evening cron did not fire on 10-10 (its log jumps
