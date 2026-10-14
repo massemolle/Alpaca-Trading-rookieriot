@@ -345,6 +345,16 @@ shadow books see the same universe) and re-checked post-LLM in
 `pretrade_gate.py` from fresh live rows. Tightening only; omitting the new
 kwarg leaves `check_new_spread` byte-identical for existing callers.
 
+**Erratum (2026-10-14, nightly engineer).** The pre-LLM half of this
+decision never fired: `bot.py` keyed the live-count lookup by
+`sig.direction` ('long'/'short') against a dict keyed by the DB's
+vocabulary ('bull_put'/'bear_call'), so `same_direction_count` was always
+0 and only the post-LLM `pretrade_gate.py` re-check enforced the cap —
+on 2026-10-14 a 3rd XLE bull_put reached the judge four cycles running
+while the counterfactual gate rejected it at the cap every time. Fixed
+(lookup now uses `plan.direction`); pinned by
+`tests/test_direction_cap_vocabulary.py`.
+
 ## Open questions
 
 - [x] Final scrub before submission — DONE 2026-09-04 (third-party identifiers neutralized; history verified secret-free before going public)

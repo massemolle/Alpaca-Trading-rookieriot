@@ -617,8 +617,14 @@ async def find_candidates(
             existing_exposure=existing_exposure,
             underlying=sig.ticker,
             cluster_exposure=cluster_exposure,
-            same_direction_count=open_direction_counts.get((sig.ticker, sig.direction), 0),
-            direction=sig.direction,
+            # The live-rows dict is keyed by the DB's direction vocabulary
+            # ('bull_put'/'bear_call'); sig.direction is the signal's
+            # 'long'/'short'. A sig-keyed lookup always missed, so the D25
+            # stack cap never fired pre-LLM (2026-10-14: a 3rd XLE bull_put
+            # reached the judge four cycles running while the post-LLM gate
+            # rejected it at the cap every time).
+            same_direction_count=open_direction_counts.get((sig.ticker, plan.direction), 0),
+            direction=plan.direction,
         )
         if not check.allowed:
             logger.info("%s rejected by risk gate: %s", sig.ticker, check.reasons)

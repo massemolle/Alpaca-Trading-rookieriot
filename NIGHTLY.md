@@ -2,6 +2,97 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-14 evening (reviewing trading day 2026-10-14 — a red day the judge sat out correctly: 8 judged cycles, 8 abstentions, all vindicated by tonight's marks; the finding is that the D25 per-direction stack cap has NEVER fired pre-LLM — a direction-vocabulary mismatch left it dead since 10-08. Theme: make D25 enforce where PLAN says it does.)
+
+**Verdicts on 10-13 watch items.** (1) IWM's chronic-loser lock has rolled
+off — no `low_profit` line in today's journals — but the trend filter now
+blocks it every cycle ("Short against bullish trend", ADX 39.2), so the
+careful-read-the-first-post-lock-candidate moment hasn't arrived; carried
+forward. (2) The two XLE bull puts remain live (2 spreads, $874.5 max loss
+in every cycle's facts), expiry 10-23 now 9 days out — the censored-credit
+clock keeps running; proposal (l)/(n) evidence unchanged. (3) Zero RHETORIC
+AUDIT blocks today — nothing to read; the 10-13 rescue is untested live but
+also unprovoked.
+
+**The day.** Risk-off: SPY −1.08% on 1.24× volume, XLK −2.97%, IWM −1.91%,
+GLD gapped −1.76%; XLE (+0.65%) the only green universe name. Zero trades:
+three closed-market/no-survivor skips, two cache-reused skips, and eight
+judged cycles — eight abstentions, every one on the familiar shape (GLD
+strength 0.096–0.191 with "approaching oversold" at RSI 31–34 vs a 25
+threshold, XLE 0.415–0.422 at RSI 87–88 on the upper band with 2 spreads
+already held). On a day this red, those were the right calls: every one of
+today's six dropped menu rows marks negative tonight (GLD bear calls −$11
+to −$37, one closed_stop; XLE bull puts −$17.5/−$25.5).
+
+**Evidence (per analyze-regret).** Step 2, ablation recent_7d: LLM
+−$59.77/close over 13 vs rule −$50.86 over 83 vs random −$77.68 over 17 —
+LLM ≈ rule at n=13 (no censored credit in the window this time), both
+clearly above random, every arm losing (the 10-07/08 stop cluster still
+owns the window). No tune trigger. Step 3, regret: zero — best dropped row
+anywhere recent is +$1.50 (XLE 65/60, c558, 10-09 — noise); all of today's
+drops are class (a), reasoning sound AND outcome right. The weak link is
+again class (c) infrastructure, and this one is confirmed in code, not
+just in marks:
+
+**The finding — the D25 stack cap was dead on arrival pre-LLM.** D25
+(2026-10-08) says the per-(underlying, direction) cap is "enforced pre-LLM
+in bot.py … so the menu and shadow books see the same universe." It never
+was: `find_candidates` builds `open_direction_counts` keyed by the DB
+rows' direction vocabulary ('bull_put'/'bear_call') but looked it up with
+`sig.direction` ('long'/'short'), so `same_direction_count` was always 0
+and the cap could only ever fire in the post-LLM `pretrade_gate.py`
+re-check — i.e., only AFTER the judge had already spent a pick on an
+unexecutable candidate. Today is the clean exhibit: cycles 575–578 each
+handed the judge a 3rd XLE bull_put while the journal's counterfactual
+gate rejected XLE at the cap all four times. The 10-12 entry's observation
+that "the D25 3rd-same-direction rejection string remains unexercised" was
+this bug, not good luck. Cost so far: zero realized (the judge refused XLE
+on its own each time), but had it ever said yes, that pick would have been
+the FIFTH erased by infrastructure (c413, c431, c449, c536) — and the
+judge's abstention rationales have been carrying concentration reasoning
+the gate was supposed to make unnecessary.
+
+**Change (one theme).** `bot.py`: the cap lookup and the gate's
+`direction` kwarg now use `plan.direction` (the DB vocabulary the dict is
+keyed by, available at the call site since sizing already ran) instead of
+`sig.direction`. This is enforcement of an existing, PLAN-documented limit
+— tightening only; at-cap stacks now stop at the risk_gate stage with the
+same "per-underlying/direction cap" string the post-LLM gate uses, and
+they stop reaching the judge, menu, and shadow books exactly as D25
+intended. New `tests/test_direction_cap_vocabulary.py` runs
+`find_candidates` end-to-end against a stacked live book and pins the
+mapping three ways: 2 live bull_puts block a 'long' signal's 3rd (and the
+rejection speaks the DB vocabulary), 2 bear_calls do NOT block a bull_put,
+1 bull_put stays under cap. **268 passed** (was 265). PLAN.md D25 carries
+the erratum.
+
+**Deliberately not changed.** (a) Still no builder credit floor — today's
+~6–8.6% credit-to-risk candidates were all refused and all mark negative;
+the refusals keep winning (third consecutive note, same conclusion). (b)
+The all-day parade of sub-0.2-strength GLD candidates (8 LLM calls to
+refuse near-identical facts) suggests a pre-LLM strength floor could save
+tokens, but that's a selection-universe change with menu-evidence costs —
+needs a lab-style look at how many eventual winners ever came from
+sub-0.2 strength before proposing; not tonight. (c) XLF died in
+spread_builder ("no viable spread plan") all day — but XLF built fine on
+10-12, so this is quote-conditions, not a defect; passive watch.
+
+**Watch tomorrow.** (1) First at-cap stack post-fix: while XLE holds 2
+bull puts, an XLE 'long' signal should now journal a risk_gate-stage
+"per-underlying/direction cap" rejection instead of reaching the judge —
+that string appearing in gate_rejections is the fix working; a 3rd XLE
+bull_put in any judged slate means it isn't. (2) XLE 10-23 expiry
+approaching with closes resting on quote-dead legs — if they drift to
+settlement unbooked, the censored column grows by up to $229 (all-time)
+and the (l)/(n) proposals get their strongest exhibit yet. (3) IWM's
+first post-lock candidate (once the trend filter releases it) still
+deserves the careful read promised on 10-13.
+
+**Proposals (team's call).** Standing, unchanged: (t) cross-sleeve leg
+visibility, (q) dedup window, (l) single-leg buy-to-close, (n) expiry P&L
+backfill, (o) closed_force status, (p) multi-pick truncation order,
+(h)/(i)/(k), and the 10-13 one-liner (no BLOCKED prefix on abstentions).
+
 ## 2026-10-13 evening (reviewing trading day 2026-10-13 — a dead-quiet, zero-trade day: 13 judged cycles, 13 vindicated abstentions on a one-slot book, and D27's first live test passed all afternoon; the one defect is that the rhetoric audit's first post-fix block was a FALSE one. Theme: clause-level tags in `rhetoric.py`.)
 
 **Verdicts on 10-12 watch items.** (1) D27 CONFIRMED live, emphatically:
