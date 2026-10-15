@@ -20,7 +20,7 @@ import requests
 
 import bot as credit_bot
 from alpaca_client import AlpacaClient
-from arm_council import book, config as ccfg, council, features
+from arm_council import book, config as ccfg, council, features, llm_review
 
 BASE = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
@@ -115,9 +115,18 @@ def main() -> None:
         if not d["tradeable"]:
             book.journal(s.symbol, "rejected", d)
             continue
+        # Their single optional model stage: may only DOWNGRADE a BUY.
+        review = llm_review.review(d, s)
+        if review["action"] != "BUY":
+            d["violations"] = d["violations"] + [f"llm_review downgraded to {review['action']}"]
+            d["llm_review"] = review
+            book.journal(s.symbol, "llm_downgraded", d)
+            continue
+        d["llm_review"] = review
+
         size_usd, qty, violations = council.size_position(
             equity, cash, book.gross_exposure(), s.price,
-            d["confidence"], d["opportunity"], s.realized_vol)
+            review["confidence"], d["opportunity"], s.realized_vol)
         if violations or qty <= 0:
             d["violations"] = d["violations"] + violations
             book.journal(s.symbol, "size_blocked", d)

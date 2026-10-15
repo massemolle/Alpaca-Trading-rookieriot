@@ -131,3 +131,41 @@ def test_snapshot_from_bars_shapes():
 
 def test_snapshot_rejects_short_history():
     assert features.snapshot_from_bars("T", pd.DataFrame({"close": [1, 2]}), 1, 2) is None
+
+
+# ---- the optional LLM stage: a ratchet, never an elevator --------------------
+
+def test_llm_review_cannot_create_a_buy(monkeypatch):
+    """Their key property: a model reply of BUY can never elevate; only
+    HOLD/PASS are honored, and any failure keeps the deterministic action."""
+    import json as _json
+    import subprocess
+    from arm_council import llm_review
+
+    d = {"confidence": 86.0, "regime": "RISK_ON", "multi_factor": 72.0,
+         "rr": 2.4, "opportunity": 70.0, "risk": 20.0, "vulnerabilities": []}
+    s = snap()
+
+    class R:
+        returncode = 0
+        stderr = ""
+        stdout = _json.dumps({"decision": "BUY", "confidence": 99, "thesis": "moon",
+                              "invalidation": "x", "risks": [], "reasoningSummary": "y"})
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: R())
+    out = llm_review.review(d, s)
+    assert out["action"] == "BUY" and out["downgraded"] is False
+    assert out["confidence"] == round((86.0 + 99) / 2)   # blended, not elevated
+
+    class Veto(R):
+        stdout = _json.dumps({"decision": "PASS", "confidence": 20, "thesis": "",
+                              "invalidation": "", "risks": [], "reasoningSummary": ""})
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Veto())
+    assert llm_review.review(d, s)["action"] == "PASS"
+
+    def boom(*a, **k):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert llm_review.review(d, s)["action"] == "BUY"     # failure keeps deterministic
