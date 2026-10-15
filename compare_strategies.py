@@ -33,6 +33,14 @@ def main():
         print(f"PREMIUM BUYER (buy premium): {p['n']} closed, {p['wins']} wins, "
               f"realized ${float(p['realized']):.2f}, {cur.fetchone()['o']} open")
 
+        cur.execute(f"""select count(*) n, count(*) filter (where realized_pnl>0) wins,
+                        coalesce(sum(realized_pnl),0) realized
+                        from {s}.ks_positions where closed_at >= %s""", (SINCE,))
+        k = cur.fetchone()
+        cur.execute(f"select count(*) o from {s}.ks_positions where status='open'")
+        print(f"KILLSWITCH ARM (ITM long singles, 30-45 DTE): {k['n']} closed, {k['wins']} wins, "
+              f"realized ${float(k['realized']):.2f}, {cur.fetchone()['o']} open")
+
         cur.execute(f"""select coalesce(avg(brier) filter (where taken),0) t,
                         coalesce(avg(brier) filter (where not taken),0) d, count(*) n
                         from {s}.premium_predictions where resolved_at is not null""")

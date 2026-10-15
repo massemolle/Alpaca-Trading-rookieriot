@@ -246,11 +246,15 @@ def _premium_leg_quantities() -> dict[str, int]:
     spreads book, and must not be counted as orphans here. Fail-open to {}:
     if the sleeve's tables are missing/unreadable, reconciliation proceeds
     exactly as before the sleeve existed."""
-    try:
-        from premium_buyer import book as premium_book
-        return premium_book.open_leg_quantities()
-    except Exception:
-        return {}
+    out: dict[str, int] = {}
+    for module in ("premium_buyer.book", "arm_killswitch.book"):
+        try:
+            mod = __import__(module, fromlist=["open_leg_quantities"])
+            for sym, qty in mod.open_leg_quantities().items():
+                out[sym] = out.get(sym, 0) + qty
+        except Exception:
+            continue  # sleeve absent/unreadable -> behave as before it existed
+    return out
 
 
 def _exclude_foreign_legs(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
