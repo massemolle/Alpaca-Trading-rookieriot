@@ -41,6 +41,14 @@ def main():
         print(f"KILLSWITCH ARM (ITM long singles, 30-45 DTE): {k['n']} closed, {k['wins']} wins, "
               f"realized ${float(k['realized']):.2f}, {cur.fetchone()['o']} open")
 
+        cur.execute(f"""select count(*) n, count(*) filter (where realized_pnl>0) wins,
+                        coalesce(sum(realized_pnl),0) realized
+                        from {s}.council_positions where closed_at >= %s""", (SINCE,))
+        cl = cur.fetchone()
+        cur.execute(f"select count(*) o from {s}.council_positions where status='open'")
+        print(f"COUNCIL ARM (deterministic, long equities): {cl['n']} closed, {cl['wins']} wins, "
+              f"realized ${float(cl['realized']):.2f}, {cur.fetchone()['o']} open")
+
         cur.execute(f"""select coalesce(avg(brier) filter (where taken),0) t,
                         coalesce(avg(brier) filter (where not taken),0) d, count(*) n
                         from {s}.premium_predictions where resolved_at is not null""")

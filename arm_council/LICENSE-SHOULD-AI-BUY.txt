@@ -1,0 +1,23 @@
+Business Source License 1.1
+
+Parameters:
+
+Licensor:                 Nabiel Novel Khubran
+Licensed Work:            Should-AI-Buy? (including all source code, architecture specifications, and documentation)
+Change Date:              October 5, 2030
+Change License:           Apache License, Version 2.0
+Additional Use Grant:     You may use the Licensed Work for non-commercial, personal, research, educational, and testing purposes only, including executing paper trading in non-production sandbox environments. Any commercial use, including but not limited to hosting the Licensed Work as a managed service, integrating it into proprietary commercial trading infrastructure, or generating commercial revenue through its deployment, requires a separate commercial license from Licensor.
+
+Text of the License:
+
+The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The foregoing license is personal, non-sublicensable, and subject to the following conditions:
+
+1. You must give prominent notice that the Licensed Work is subject to this License and include the full text of this License with every copy of the Licensed Work.
+
+2. You may make use of the Licensed Work only in accordance with the Additional Use Grant above.
+
+3. Effective on the Change Date, or the date of Licensor's announcement of an earlier Change Date, the Licensed Work is licensed to you under the Change License.
+
+4. To the extent permitted by applicable law, the Licensed Work is provided on an "AS IS" basis. The Licensor makes no warranties, express or implied, regarding the Licensed Work, including warranties of merchantability, fitness for a particular purpose, non-infringement, or algorithmic performance.
+
+5. In no event shall Licensor be liable to you or any third party for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, financial losses, loss of capital, broker liquidation events, or loss of profits) arising in any way out of the use of this software, even if advised of the possibility of such damage.

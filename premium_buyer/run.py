@@ -141,7 +141,7 @@ async def cycle() -> None:
             spot_val = next(f["value"] for f in plan.facts if f["fact_id"].endswith("_SPOT"))
             if tkr in picked:
                 res = await executor.buy(mcp, plan.symbol, 1, plan.mid)
-                if res is not None:
+                if res is not None and res.get("status") != "dry_run":
                     fill = res.get("fill_price") or plan.mid
                     book.open_position(underlying=tkr, symbol=plan.symbol, right=plan.direction,
                                        strike=plan.strike, expiration=plan.expiration, contracts=1,
