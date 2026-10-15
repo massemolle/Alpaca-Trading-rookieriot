@@ -27,7 +27,22 @@ class Signal:
     reasoning: list[str] = field(default_factory=list)
 
 
-def generate_swing_signals(symbols: list[str], client: AlpacaClient | None = None) -> list[Signal]:
+def generate_swing_signals(
+    symbols: list[str],
+    client: AlpacaClient | None = None,
+    *,
+    range_mean_revert: bool = False,
+) -> list[Signal]:
+    """range_mean_revert is a DARK variant (2026-10-15, lab-gated): when True,
+    the RSI/MACD z-score terms flip sign in weak-trend regimes (ADX below the
+    detector threshold), reading oscillator extremes as mean-reversion instead
+    of momentum there. Default False = exact production behavior; bot.py does
+    not pass it. Rationale: with the default momentum read, an oversold RSI at
+    the lower Bollinger band scores as a high-conviction SHORT at the bottom
+    of a range — the Bollinger term (mean-reversion) and the oscillator terms
+    (momentum) vote against each other by construction at every extreme.
+    Mirrored in backtest_optimize._signal_from_df (flat copy, no auto-sync);
+    adopt live only on lab evidence (ladder row L3c)."""
     if client is None:
         client = AlpacaClient()
 
@@ -96,10 +111,15 @@ def generate_swing_signals(symbols: list[str], client: AlpacaClient | None = Non
         last_sma200 = sma200.iloc[-1] if not pd.isna(sma200.iloc[-1]) else None
 
         # --- Z-score normalized scoring with adaptive thresholds ---
+        osc_sign = 1.0
+        if range_mean_revert and not regime.is_strong_trend:
+            osc_sign = -1.0
+            reasoning.append("Weak-trend regime: RSI/MACD z-scores read as mean-reversion (range_mean_revert)")
+
         rsi_mean = rsi.rolling(20).mean().iloc[-1]
         rsi_std = rsi.rolling(20).std().iloc[-1]
         rsi_z = (last_rsi - rsi_mean) / rsi_std if rsi_std and rsi_std > 0 else 0
-        score += rsi_z * 0.4
+        score += osc_sign * rsi_z * 0.4
         if last_rsi < params.rsi_oversold + 10:
             reasoning.append(f"RSI approaching oversold ({last_rsi:.1f}, z={rsi_z:.2f}, threshold={params.rsi_oversold})")
         elif last_rsi > params.rsi_overbought - 10:
@@ -108,7 +128,7 @@ def generate_swing_signals(symbols: list[str], client: AlpacaClient | None = Non
         macd_mean = macd_hist.rolling(20).mean().iloc[-1]
         macd_std = macd_hist.rolling(20).std().iloc[-1]
         macd_z = (last_macd_hist - macd_mean) / macd_std if macd_std and not pd.isna(macd_std) and macd_std > 0 else 0
-        score += macd_z * 0.3
+        score += osc_sign * macd_z * 0.3
         if abs(macd_z) > 0.5:
             reasoning.append(f"MACD z-score {'bullish' if macd_z > 0 else 'bearish'} ({macd_z:.2f})")
 

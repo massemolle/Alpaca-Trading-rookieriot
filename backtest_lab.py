@@ -68,7 +68,11 @@ PROD_PARAMS = dict(target_delta=0.17, dte_range=(10, 21), profit_target_pct=0.50
 
 def load_bars(symbols: list[str]) -> dict[str, pd.DataFrame]:
     BARS_DIR.mkdir(parents=True, exist_ok=True)
-    client = AlpacaClient()
+    # Lazy client: only a cache MISS needs credentials, so a fully-cached
+    # basket lets the lab run offline (e.g. the credential-less evening
+    # session). Eager construction used to fail the whole run before the
+    # cache was even consulted (found 2026-10-15).
+    client: AlpacaClient | None = None
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=LOOKBACK_DAYS + 400)  # + warmup room
     out: dict[str, pd.DataFrame] = {}
@@ -77,6 +81,8 @@ def load_bars(symbols: list[str]) -> dict[str, pd.DataFrame]:
         if cache.exists():
             df = pd.read_csv(cache, index_col=0, parse_dates=True)
         else:
+            if client is None:
+                client = AlpacaClient()
             bars = client.get_bars(sym, TimeFrame.Day, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), limit=10000)
             df = pd.DataFrame(bars)
             if df.empty or "close" not in df.columns:
@@ -93,13 +99,17 @@ def load_bars(symbols: list[str]) -> dict[str, pd.DataFrame]:
 
 def find_events(
     data: dict[str, pd.DataFrame], *, use_trend: bool, use_vol: bool,
-    adx_gated_trend: bool = False,
+    adx_gated_trend: bool = False, range_mean_revert: bool = False,
 ) -> list[tuple]:
     """backtest_optimize.main's event loop, with the filters made toggleable.
 
     adx_gated_trend=True tests the 2026-09-01 hypothesis: only block
     counter-trend signals when ADX > 25 (same TrendFilter class live uses,
-    so a lab win here transfers directly)."""
+    so a lab win here transfers directly).
+
+    range_mean_revert=True tests the 2026-10-15 hypothesis: in weak-trend
+    regimes, RSI/MACD z-score extremes predict reversion, not continuation
+    (same flag generate_swing_signals carries dark, so a win transfers)."""
     adaptive = AdaptiveIndicators()
     trend_filter = TrendFilter(block_only_strong_trend=adx_gated_trend)
     events = []
@@ -109,7 +119,8 @@ def find_events(
             if i <= cooldown_until:
                 continue
             window = df.iloc[max(0, i - 89): i + 1]
-            sig = bo._signal_from_df(symbol, window, adaptive)
+            sig = bo._signal_from_df(symbol, window, adaptive,
+                                     range_mean_revert=range_mean_revert)
             if sig is None or sig.direction == "neutral":
                 continue
             trend_window = df.iloc[: i + 1]
@@ -282,8 +293,17 @@ def main() -> None:
         ("L3 + vol filter", dict(use_trend=True, use_vol=True)),
         # ADX-gated trend variants (2026-09-01): counter-trend blocked only
         # when ADX > 25. Compare L2b vs L2 and L3b vs L3 — same window/seeds.
+        # VERDICT (first run 2026-10-15, cached Aug-29 window): REJECTED —
+        # L3b +$364/maxDD −$1,131 vs L3 +$1,289/−$691. Stays dark.
         ("L2b ADX-gated trend", dict(use_trend=True, use_vol=False, adx_gated_trend=True)),
         ("L3b ADX-gated + vol", dict(use_trend=True, use_vol=True, adx_gated_trend=True)),
+        # Range-mean-reversion oscillator variant (2026-10-15): in weak-trend
+        # regimes the RSI/MACD z terms flip to a reversion read. Compare L3c
+        # vs L3 — same window/seeds; filters identical, only scoring differs.
+        # VERDICT (same run): REJECTED — L3c +$192/73.3% win/maxDD −$1,139 vs
+        # L3 +$1,289/79.3%/−$691 on identical events. Stays dark; re-judge
+        # only after a bars refresh covering the Sep-Oct ranging regime.
+        ("L3c range-MR osc + vol", dict(use_trend=True, use_vol=True, range_mean_revert=True)),
     ]
     l3_events = None
     for name, toggles in ladder:

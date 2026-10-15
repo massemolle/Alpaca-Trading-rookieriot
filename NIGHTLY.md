@@ -2,6 +2,117 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-15 evening (reviewing trading day 2026-10-15 — first opens since 10-08: three new spreads, five vindicated abstentions, D25's pre-LLM cap confirmed live on QQQ. Theme: the scoring engine's oscillator semantics — hypothesized, lab-tested same night for the first time, and REJECTED; live behavior unchanged.)
+
+**Verdicts on 10-14 watch items.** (1) D25 pre-LLM cap: CONFIRMED live,
+retired. It fired on QQQ rather than XLE: after c588 opened the second QQQ
+bear call, cycles 593–595 each journal a risk_gate-stage rejection — "2 live
+QQQ bear_call spread(s) already held, at the 2 per-underlying/direction cap"
+— in `gate_rejections`, i.e. BEFORE the judge; no third QQQ bear_call
+appeared in any judged slate. Exactly the string and stage last night's fix
+promised. (2) XLE 10-23 expiry (8 days out): both bull puts still `open`,
+censored column unchanged (all-time 3 rows/$229, zero in the 7d window) —
+clock still running, proposals (l)/(n) evidence static. (3) IWM: trend
+filter still blocks every cycle (ADX 40.2, short against bullish trend);
+post-lock careful read still pending.
+
+**The day.** Risk-on-ish and rotational (SPY +0.28% after a −0.44% gap, IWM
++1.34%, GLD +1.78%, XLE −1.58%; QQQ gapped −1.42% and recovered to −0.11%).
+Eight judged cycles: three opens — QQQ 740/745 bear call (c583, strength
+0.742), SPY 782/787 bear call (c584, 0.842, fresh exposure), QQQ 750/755
+(c588, 0.624, a deliberate add the judge accepted at known concentration) —
+then five abstentions on the familiar weak slate (GLD 0.199–0.267, SPY
+0.347–0.505 with one SPY spread already held), all of which mark no worse
+than −$19 tonight. Account equity $96,546, daily mark −$1,632 — noting for
+tomorrow: all five live spreads closed the day OTM (QQQ shorts 740/750 vs
+728.19, SPY 782 vs 771.77, XLE puts 64/63.5 vs 66.55), so a four-digit
+negative daily mark on ~$2.2k of total max loss looks like after-hours
+quote marks, not realized damage; if it doesn't normalize at the open it's
+real and concentration-shaped.
+
+**Evidence (per analyze-regret).** Step 2, ablation recent_7d: LLM
+−$50.00/close over 9 vs rule −$53.07 over 74 vs random −$85.15 over 13 —
+LLM ≈ rule, both clearly above random, no tune trigger. Step 3, regret:
+zero again — the best dropped row anywhere today is GLD c584 at +$1.50
+(noise); all 11 other drops mark $0 to −$57.5. Every abstention class (a).
+But reading the three OPEN rationales side by side surfaced a judge
+inconsistency pointing at the pipeline: c586 abstained on QQQ calling
+oversold RSI + lower Bollinger band "mean-reversion/bounce conditions that
+cut against the short thesis," then c588 opened the same shape calling it
+"three confirming mean-reversion signals" for a SHORT. The judge is
+improvising semantics because the engine's own semantics are incoherent:
+in `signals/swing.py` the RSI and MACD z-terms are momentum reads (oversold
+⇒ more short conviction) while the Bollinger term is a reversion read
+(lower band ⇒ +0.5 long), so at every range extreme they vote against each
+other and the net result is a high-strength SHORT at the bottom of a range
+— today's QQQ c583: RSI 24.6 (z=−2.55) ON the lower band ⇒ 0.742 short.
+
+**The experiment (per run-lab-experiment) — hypothesis REJECTED.**
+Hypothesis: in weak-trend regimes (`is_strong_trend` False) the oscillator
+z-terms should read as mean-reversion (sign-flipped), aligning them with
+the Bollinger term. Implementation: a dark `range_mean_revert` flag in
+`generate_swing_signals` and its documented flat copy
+`backtest_optimize._signal_from_df`, threaded into the ladder as "L3c
+range-MR osc + vol" — default False is byte-identical production scoring;
+`bot.py` untouched. The run (same cached window/seeds as the 08-29
+baselines, which reproduce):
+
+| config | n | total | win | maxDD |
+|---|---|---|---|---|
+| L3 + vol (live scoring) | 116 | **+$1,289** | 0.793 | −$691 |
+| L3c range-MR osc | 116 | +$192 | 0.733 | −$1,139 |
+| L3b ADX-gated trend (09-01, first-ever run) | 125 | +$364 | 0.736 | −$1,131 |
+
+Both dark variants lose on total P&L AND drawdown: L3c and L3b are
+REJECTED on this window; live behavior stays exactly as-is, the flags stay
+dark with their verdicts annotated in the ladder. Honesty caveats: BS /
+realized-vol proxy, relative comparison only; and the cached bars end
+2026-08-29, so the window is era-biased toward the trending summer — thin
+on exactly the ranging regime the hypothesis targets. Rejection = "no lab
+support," not proof of harm; re-judge only after a bars refresh.
+
+**The enabling fix: the lab now runs credential-less.** `load_bars` built
+an `AlpacaClient` eagerly, before consulting the cache, so any session
+without broker credentials (this one) crashed on startup even with all 12
+basket symbols cached — which is why L3b sat unjudged for six weeks after
+09-01 proposed "team: run the lab once." The client is now constructed
+lazily on first cache MISS; a fully-cached basket runs offline. `persist()`
+already degrades to a WARNING without DB credentials, so tonight's results
+live in `state/backtest_results.json` but NOT in the `lab_*` tables — the
+dashboard /lab page does not show this run.
+
+**Changes.** (1) `signals/swing.py` + `backtest_optimize.py`: dark
+`range_mean_revert` flag (default False = production behavior, verified
+byte-identical scoring by parity tests). (2) `backtest_lab.py`: L3c ladder
+row, flag plumbing in `find_events`, lazy `AlpacaClient` in `load_bars`,
+REJECTED verdicts annotated on the L2b/L3b/L3c comments. (3) New
+`tests/test_range_mean_revert_scoring.py` (7 tests): pins the live default
+(oversold-at-lower-band in a ranging regime scores SHORT — today's QQQ
+shape), the flip (long, weak-trend only), inertness in strong trend, and
+live-vs-lab-copy parity both ways (guards the "flat copy, no auto-sync"
+convention). **299 passed** (was 292).
+
+**Deliberately not changed.** (a) Live scoring — that was the theme, and
+the lab said no. (b) The reasoner prompt — the c586/c588 inconsistency is
+real but cost nothing measurable yet (both QQQ opens are open marks, regret
+zero); no analyze-regret pattern, so tune-reasoner-prompt stays holstered.
+(c) The after-hours mark question — observe first (watch item 3).
+
+**Watch tomorrow.** (1) The three new opens' marks at the open: if the
+−$1,632 daily mark largely reverts, it was quote noise; if not, the book's
+index-short concentration (2×QQQ + 1×SPY bear calls, correlated) is
+genuinely paying and the judge's c588 "deliberate add" deserves a skeptical
+re-read. (2) QQQ sits at the D25 cap — when one QQQ spread exits, the first
+post-cap QQQ candidate and the judge's re-add rationale get the careful
+read. (3) XLE 10-23 expiry in 8 days with the censored-credit question
+still open. (4) IWM post-lock read, still carried.
+
+**Proposals (team's call).** NEW: (u) refresh `state/bars/` (needs broker
+credentials) and re-run `python backtest_lab.py` so L3b/L3c get judged on a
+window that includes the Sep–Oct ranging regime, and so results persist to
+`lab_*` (run it from a credentialed shell). Standing, unchanged: (t), (q),
+(l), (n), (o), (p), (h)/(i)/(k), and the 10-13 no-BLOCKED-prefix one-liner.
+
 ## 2026-10-14 evening (reviewing trading day 2026-10-14 — a red day the judge sat out correctly: 8 judged cycles, 8 abstentions, all vindicated by tonight's marks; the finding is that the D25 per-direction stack cap has NEVER fired pre-LLM — a direction-vocabulary mismatch left it dead since 10-08. Theme: make D25 enforce where PLAN says it does.)
 
 **Verdicts on 10-13 watch items.** (1) IWM's chronic-loser lock has rolled

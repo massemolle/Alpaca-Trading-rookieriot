@@ -70,7 +70,13 @@ PARAM_GRID = {
 CURRENT_DEFAULTS = (0.17, (10, 21), 0.50)
 
 
-def _signal_from_df(symbol: str, df: pd.DataFrame, adaptive: AdaptiveIndicators) -> Signal | None:
+def _signal_from_df(
+    symbol: str, df: pd.DataFrame, adaptive: AdaptiveIndicators,
+    *, range_mean_revert: bool = False,
+) -> Signal | None:
+    # range_mean_revert mirrors the same-named DARK flag in
+    # signals.swing.generate_swing_signals (2026-10-15): flip the RSI/MACD
+    # z-score terms in weak-trend regimes. Default False = production scoring.
     if len(df) < 60:
         return None
     try:
@@ -97,11 +103,12 @@ def _signal_from_df(symbol: str, df: pd.DataFrame, adaptive: AdaptiveIndicators)
     rsi_mean = rsi.rolling(20).mean().iloc[-1]
     rsi_std = rsi.rolling(20).std().iloc[-1]
     rsi_z = (last_rsi - rsi_mean) / rsi_std if rsi_std and rsi_std > 0 else 0
-    score += rsi_z * 0.4
+    osc_sign = -1.0 if (range_mean_revert and not result.regime.is_strong_trend) else 1.0
+    score += osc_sign * rsi_z * 0.4
     macd_mean = macd_hist.rolling(20).mean().iloc[-1]
     macd_std = macd_hist.rolling(20).std().iloc[-1]
     macd_z = (last_macd_hist - macd_mean) / macd_std if macd_std and not pd.isna(macd_std) and macd_std > 0 else 0
-    score += macd_z * 0.3
+    score += osc_sign * macd_z * 0.3
     if last_bb_lower and last_close <= last_bb_lower:
         score += 0.5
     elif last_bb_upper and last_close >= last_bb_upper:
