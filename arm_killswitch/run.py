@@ -48,7 +48,8 @@ async def manage_exits(mcp, client) -> list[str]:
             entry_premium=float(p["premium_paid"]) / 100, current_premium=mid,
             spot=spot, stop_spot=float(p["stop_spot"]), right=p["right_"], dte=dte)
         if reason:
-            res = await executor.sell_to_close(mcp, p["symbol"], int(p["contracts"]), mid)
+            res = await executor.sell_to_close(mcp, p["symbol"], int(p["contracts"]), mid,
+                                               dry_run=kcfg.DRY_RUN)
             if res is not None:
                 fill = res.get("fill_price") or mid
                 pnl = round((fill - float(p["premium_paid"]) / 100) * 100 * int(p["contracts"]), 2)
@@ -171,7 +172,8 @@ async def cycle() -> None:
         opened = []
         for s in selected:
             c = by_t[s["ticker"]]
-            res = await executor.buy(mcp, c["_sym"], c["contracts"], c["_mid"])
+            res = await executor.buy(mcp, c["_sym"], c["contracts"], c["_mid"],
+                                     dry_run=kcfg.DRY_RUN)
             if res is not None:
                 fill = res.get("fill_price") or c["_mid"]
                 book.open_position(underlying=c["ticker"], symbol=c["_sym"], right=c["right"],

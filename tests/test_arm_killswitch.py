@@ -69,3 +69,22 @@ def test_killswitch_halts_entries_only(monkeypatch):
 def test_daily_loss_gate():
     g = gates.pre_model_gates(equity=100_000, daily_pl=-2_500)
     assert not g.allowed and any("daily loss" in r for r in g.reasons)
+
+
+@pytest.mark.asyncio
+async def test_executor_honors_caller_dry_run_not_sleeve_flag(monkeypatch):
+    """2026-10-15 incident: arm 3 passed KS_DRY_RUN=true but the shared
+    executor read PREMIUM_DRY_RUN (live) and placed 20 real paper contracts.
+    A caller-supplied dry_run must win over the module's own flag."""
+    from premium_buyer import config as pcfg, executor
+
+    monkeypatch.setattr(pcfg, "DRY_RUN", False)   # premium sleeve is LIVE
+
+    class ExplodingMCP:
+        async def call(self, *a, **k):
+            raise AssertionError("a dry-run caller must never reach the broker")
+
+    res = await executor.buy(ExplodingMCP(), "TLT261127C00079000", 18, 2.165, dry_run=True)
+    assert res is not None and res["status"] == "dry_run"
+    res2 = await executor.sell_to_close(ExplodingMCP(), "TLT261127C00079000", 18, 2.165, dry_run=True)
+    assert res2 is not None and res2["status"] == "dry_run"

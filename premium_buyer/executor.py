@@ -19,10 +19,15 @@ def _cid(action: str, symbol: str, contracts: int) -> str:
     return f"prem-{action}-{h}"
 
 
-async def buy(mcp, symbol: str, contracts: int, mid: float) -> dict | None:
+async def buy(mcp, symbol: str, contracts: int, mid: float,
+              dry_run: bool | None = None) -> dict | None:
+    """`dry_run` overrides the premium sleeve's flag — REQUIRED by any other
+    sleeve reusing this executor. 2026-10-15: arm_killswitch passed its own
+    KS_DRY_RUN but this read PREMIUM_DRY_RUN and placed 20 real paper
+    contracts during what was meant to be a dry test."""
     cid = _cid("open", symbol, contracts)
     limit = round(mid * (1 + SLIP), 2)
-    if pcfg.DRY_RUN:
+    if pcfg.DRY_RUN if dry_run is None else dry_run:
         logger.info("DRY_RUN: would buy %sx %s limit %.2f (%s)", contracts, symbol, limit, cid)
         return {"id": f"dryrun-{cid}", "client_order_id": cid, "status": "dry_run",
                 "fill_price": mid}
@@ -56,10 +61,11 @@ async def buy(mcp, symbol: str, contracts: int, mid: float) -> dict | None:
             "fill_price": abs(float(px)) if px is not None else None}
 
 
-async def sell_to_close(mcp, symbol: str, contracts: int, mid: float) -> dict | None:
+async def sell_to_close(mcp, symbol: str, contracts: int, mid: float,
+                        dry_run: bool | None = None) -> dict | None:
     cid = _cid(f"close-{datetime.now(timezone.utc).strftime('%M%S')}", symbol, contracts)
     limit = max(round(mid * (1 - SLIP), 2), 0.01)
-    if pcfg.DRY_RUN:
+    if pcfg.DRY_RUN if dry_run is None else dry_run:
         logger.info("DRY_RUN: would sell %sx %s limit %.2f", contracts, symbol, limit)
         return {"id": f"dryrun-{cid}", "status": "dry_run", "fill_price": mid}
     # Same top-level single-leg shape as buy() — see the note there.
