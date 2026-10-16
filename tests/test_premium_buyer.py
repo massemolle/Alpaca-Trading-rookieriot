@@ -124,6 +124,51 @@ def test_rhetoric_clause_rescue_leaves_multi_number_groups_strict():
     assert len(flags) == 2 and all("misquotes" in f for f in flags)
 
 
+# Derived-ratio citations (c601 2026-10-16 false block): a lone number
+# against a tag group may be a ratio OF those facts — the judge's standard
+# credit-to-risk percentage — not a misquote of either one.
+
+def _iwm_c601_cands():
+    return [{"ticker": "IWM", "facts": [
+        {"fact_id": "IWM_CREDIT_EST", "value": 53.0},
+        {"fact_id": "IWM_MAX_LOSS", "value": 447.0},
+    ]}]
+
+
+def test_rhetoric_ratio_of_cited_facts_not_flagged():
+    # Verbatim c601 fragment that produced the false block (53/447 = 11.86%).
+    text = "the best raw credit (~11.9% [IWM_CREDIT_EST, IWM_MAX_LOSS])"
+    assert rhetoric.audit_values(_iwm_c601_cands(), text) == []
+
+
+def test_rhetoric_ratio_accepted_as_fraction_too():
+    text = "a 0.119 [IWM_CREDIT_EST, IWM_MAX_LOSS] credit-to-risk read"
+    assert rhetoric.audit_values(_iwm_c601_cands(), text) == []
+
+
+def test_rhetoric_non_ratio_lone_number_multi_tag_still_flags():
+    # Matches no fact and no pairwise ratio — still a misquote.
+    flags = rhetoric.audit_values(
+        _iwm_c601_cands(), "roughly 33% [IWM_CREDIT_EST, IWM_MAX_LOSS] of risk")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_ratio_rescue_does_not_touch_single_tag_citations():
+    # A lone number against ONE tag has no group to take a ratio of —
+    # the strict path (with only the clause rescue) is unchanged.
+    flags = rhetoric.audit_values(
+        _iwm_c601_cands(), "credit of $11.9 [IWM_CREDIT_EST] this cycle")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_ratio_rescue_leaves_positional_pairs_strict():
+    # Equal-count groups keep strict positional pairing: quoting the ratio
+    # in a two-number slash pair still flags both positions.
+    text = "$11.9/$447 [IWM_CREDIT_EST, IWM_MAX_LOSS]"
+    flags = rhetoric.audit_values(_iwm_c601_cands(), text)
+    assert len(flags) == 1 and "misquotes [IWM_CREDIT_EST]" in flags[0]
+
+
 def test_alignment_blocks_self_contradiction():
     flags = rhetoric.audit_alignment([{"ticker": "SPY", "p_move": 0.40}], min_p=0.55)
     assert flags and "contradicts belief" in flags[0]

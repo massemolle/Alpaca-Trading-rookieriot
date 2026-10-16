@@ -82,8 +82,18 @@ def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05
                     flags.append(f"misquotes [{fid}]: says {quoted}, fact is {known[fid]}")
         elif len(nums) == 1 and known:
             # One number against several tags ("$479.5 [X_CREDIT, X_MAX_LOSS]"):
-            # the writer means one of them — flag only if it matches none.
-            if not any(close(nums[0], v) for v in known.values()):
+            # the writer means one of them — or a RATIO of them ("~11.9%
+            # [IWM_CREDIT_EST, IWM_MAX_LOSS]" with facts 53/447, c601
+            # 2026-10-16: a correct credit-to-risk quote, not fabrication).
+            # Flag only if the number matches no fact and no pairwise ratio
+            # (as a fraction or a percentage) of the cited facts.
+            vals = list(known.values())
+            derived = []
+            for i, a in enumerate(vals):
+                for j, b in enumerate(vals):
+                    if i != j and abs(b) > 1e-9:
+                        derived += [a / b, 100.0 * a / b]
+            if not any(close(nums[0], v) for v in vals + derived):
                 flags.append(
                     f"misquotes [{', '.join(tags)}]: says {nums[0]}, facts are "
                     + ", ".join(str(known[t]) for t in tags if t in known)

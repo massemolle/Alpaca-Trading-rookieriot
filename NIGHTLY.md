@@ -2,6 +2,112 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-16 evening (reviewing trading day 2026-10-16 — the red index day the book was positioned for: QQQ −2.52%, XLK −3.02%, SPY −1.09%, four bear-call opens into it, equity back over $100k (+$3,242 mark on the day); the defect is the rhetoric audit's THIRD false block — c601 erased a judged GLD pick over a correctly-computed credit-to-risk ratio. Theme: the audit learns ratio arithmetic.)
+
+**Verdicts on 10-15 watch items.** (1) The −$1,632 after-hours mark:
+resolved favorably but not cleanly separable — equity opened the day
+recovering and the tape then genuinely paid the index shorts (daily mark
++$3,242, equity $100,593.96 at the last snapshot). No realized damage; the
+"quote noise" hypothesis stands for the overnight component, and the
+concentration question is now moot in the best way: c588's "deliberate
+add" was today's winner, not its casualty. (2) QQQ still sits at the D25
+cap — every judged cycle today journals the risk_gate-stage
+"2 live QQQ bear_call spread(s) already held" rejection pre-judge, exactly
+as designed; no QQQ exit yet, so the post-cap re-add read is still
+pending. (3) XLE 10-23 expiry now 7 days out, both bull puts still held at
+the cap, censored column unchanged — (l)/(n) evidence static. (4) IWM
+post-lock careful read: DONE, and the judge aced it — IWM reached judged
+slates at c600/c601/c602 with noise-grade strength (0.048/0.106/0.014),
+the judge refused all three naming exactly that, and all three dropped
+bull puts virtually stopped out (−$104.5, −$58, −$55). Then the trend
+filter re-blocked IWM shorts from c611. Watch item retired, vindicated.
+
+**The day.** Risk-off in the indexes (QQQ −2.52% on 1.56× volume, XLK
+−3.02% on 2.39×, SPY −1.09%, IWM −1.65%) while XLE ripped +2.53% and
+GLD/TLT sat flat. Thirteen judged cycles: four opens, all short premium
+against the falling names — QQQ 7xx bear call (c602, a deliberate add at
+the judge's own stated concentration discount), XLK bear calls at c605 and
+c610 (the second explicitly accepting the stack for 32–44% credit-to-risk),
+SPY bear call c606 (also a deliberate add) — eight sound abstentions on
+the familiar weak-GLD / stacked-SPY reserve-bar shape, and ONE erased
+pick (c601, below). The two XLK opens mark −$36/−$25.5 after hours —
+same quote-noise shape as last night's −$1,632, expect reversion at the
+open. Book 7 spreads at the bell.
+
+**Evidence (per analyze-regret).** Step 2, ablation recent_7d: LLM
+−$41.80/close over 10 vs rule −$32.77 over 96 vs random −$36.00 over 13 —
+the LLM reads worst this window for the first time, but n=10 with zero
+censored credit, last night read LLM ≈ rule, and the window is still
+owned by the 10-07/08 stop cluster; one windowed read at this n is not
+"rule > LLM consistently," so no tune trigger — flagged to re-check
+tomorrow rather than acted on. Step 3, regret: zero again — the best
+dropped rows anywhere today are +$10.0 and +$0.5 open marks (SPY bear
+calls, c612/c610, noise); every other drop is negative, including all
+three post-lock IWM refusals. Eight abstentions class (a). The weak link
+is, for the sixth time, class (c) infrastructure:
+
+**The finding — the audit false-blocked a pick over correct arithmetic.**
+At c601 (14:02Z) the judge SELECTED GLD; the journal shows the rationale
+prefixed "[RHETORIC AUDIT BLOCKED: misquotes [IWM_CREDIT_EST,
+IWM_MAX_LOSS]: says 11.9, facts are 53.0, 447.0]" and the decision
+recorded as abstained. Read verbatim — as the 10-13 watch item demanded —
+the block is FALSE: the judge wrote "the best raw credit (~11.9%
+[IWM_CREDIT_EST, IWM_MAX_LOSS])", and 53.0/447.0 = 11.86% — a correctly
+computed credit-to-risk ratio citing its two source facts, the single
+most common derived quantity in every rationale the judge writes. The
+lone-number-vs-multi-tag branch in `rhetoric.py` accepted the number only
+if it matched ONE of the cited facts; a ratio OF them matched neither →
+flag → selection zeroed. This is the FIFTH judged pick erased by
+infrastructure (c413 phantom cap, c431 dedup, c449 audit mis-pair, c536
+wash-trade 403) and the THIRD false audit block in the same class (c449
+mis-pairing, c552 clause tag, now c601 derived ratio) — ≥3 decisions, 3
+days, over the pattern bar. Realized cost: zero yet again by luck (the
+erased GLD pick's nearest menu twins mark −$7 to +$9.5 — a nothing
+trade), but the audit's guarantee that a block means fabricated evidence
+has now failed three times, and each failure spends a real pick.
+
+**Change (one theme): `rhetoric.py` learns ratio arithmetic.** In the
+lone-number-against-multi-tag branch, before flagging, the number is now
+also checked against every pairwise ratio of the cited facts — a/b and
+100·a/b, both orders, same 5% tolerance ("~11.9%" and "0.119" both pass
+against 53/447). Everything else stays strict, pinned by test:
+equal-count groups keep positional pairing (quoting the ratio inside a
+slash-pair still flags), single-tag citations are untouched (no group to
+take a ratio of — "$11.9 [IWM_CREDIT_EST]" still flags), and a lone
+number matching no fact and no ratio still flags ("33% [A, B]" against
+53/447). Same precedent as 10-05 and 10-13: narrows what the audit can
+false-block, leaves every true-misquote path intact, touches no risk
+limit, benefits all three sleeves that share the module (bot,
+premium_buyer, arm_killswitch). 5 new tests in
+`tests/test_premium_buyer.py` including the verbatim c601 fragment as a
+regression; **304 passed** (was 299).
+
+**Deliberately not changed.** (a) The sum-of-facts citation style
+("$858.5 of combined max loss [A, B]") is the symmetric residual gap —
+no occurrence in any journal yet, so no code until it false-blocks;
+noted here so the next false block gets pattern credit immediately.
+(b) No reasoner tune — the window read (LLM worst) is one day at n=10
+against yesterday's parity; re-check tomorrow. (c) The 10-13 one-liner
+(no BLOCKED prefix on true abstentions) — c601 was a real block of a
+real selection, so today adds no evidence either way; proposal stands.
+
+**Watch tomorrow.** (1) Any new RHETORIC AUDIT block — with mis-pairing,
+clause tags, and ratios all rescued, a block should (third time making
+this promise) mean a real misquote; read it verbatim. (2) Ablation
+recent_7d: if LLM still trails BOTH rule and random at higher n, that
+starts to look like a real tune trigger instead of window noise. (3) The
+two XLK bear calls' after-hours marks should revert at the open; if XLK
+bounces hard off a −3% day, the stacked XLK shorts (2 spreads) are the
+book's drawdown path — stops armed. (4) QQQ/XLE both at D25 caps; first
+exit on either frees the slot and the judge's re-add rationale gets the
+careful read. (5) XLE 10-23 expiry, 7 days.
+
+**Proposals (team's call).** Standing, unchanged: (u) bars refresh +
+credentialed lab re-run, (t) cross-sleeve leg visibility, (q) dedup
+window, (l) single-leg buy-to-close, (n) expiry P&L backfill, (o)
+closed_force status, (p) multi-pick truncation order, (h)/(i)/(k), and
+the 10-13 no-BLOCKED-prefix one-liner.
+
 ## 2026-10-15 evening (reviewing trading day 2026-10-15 — first opens since 10-08: three new spreads, five vindicated abstentions, D25's pre-LLM cap confirmed live on QQQ. Theme: the scoring engine's oscillator semantics — hypothesized, lab-tested same night for the first time, and REJECTED; live behavior unchanged.)
 
 **Verdicts on 10-14 watch items.** (1) D25 pre-LLM cap: CONFIRMED live,
