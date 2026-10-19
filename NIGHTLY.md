@@ -2,6 +2,84 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-19 evening (reviewing trading day 2026-10-19 — the halted Monday: the −3% circuit breaker read −3.47% at the 13:30Z OPEN cycle and the 5-day drawdown halt held entries off the rest of the day, on a green tape (SPY +0.43%, QQQ +1.20%); the account's −$3.8k daily mark exceeds the credit book's entire ~$2.9k summed max loss, so the loss that halted this sleeve came mostly from elsewhere in the shared account — and nothing we log can say where. Theme: sleeve attribution for account-level halt trips.)
+
+**Verdicts on 10-16 watch items.** (1) XLK bounce risk: partially realized —
+XLK +1.38% today and the two stacked bear calls (188/193, 190/195, shorts now
+~2–4 points OTM of 185.96) mark −$66/−$83.5 on the menu book; stops armed, no
+realized damage yet, but this is now the book's nearest-the-money exposure.
+(2) LLM-vs-rule re-check at higher n: NO new data — zero entries (halted day)
+and zero closes, so recent_7d is yesterday's window shifted: LLM −$41.80/close
+(n=10) vs rule −$39.16 (n=82) vs random −$36.00 (n=13). Within noise of each
+other, all negative; still not a tune trigger, still open. (3) Sum-of-facts
+audit gap: no occurrence today (one judged cycle); unfixed, pending.
+
+**The day (per analyze-regret).** One judged cycle all day. c617 (the open)
+died at the risk gate: "daily P&L −3.47% already breaches the −3% circuit
+breaker" — at 13:30Z, before this bot had done anything today. c618 (14:02Z)
+was the only slate to reach the judge: it abstained on SPY 0.63 (stacking on
+the live SPY bear call, ranging ADX 12.26, 0.21 R/R) and GLD 0.217 — cited
+facts all verify; menu outcomes are +$2.0 / −$11.5 marks. Class (a), no
+regret, no pattern. From 15:00Z the drawdown protection (equity 3.0–3.9%
+below the 5-day peak 101,012) held entries off through the close. The judge
+and pipeline were fine today; the whole day was decided upstream, by
+account-level protections.
+
+**The finding.** Both halts key off the SHARED paper account (risk_gate's
+daily_pl_pct from account equity vs last_equity; protections.py's drawdown
+from account_snapshots.equity), and since 10-16 arms 3/4 trade that same
+account. Today's trip arithmetic: daily mark bottomed at −$3,995 (16:00Z
+snapshot) while the credit book's 7 open spreads sum to ~$2,896 of max loss
+— even a total wipeout of this book could not produce the number, and the
+−3.47% existed at the open, i.e. it is an overnight/weekend mark plus
+whatever the other sleeves hold. Nothing in the snapshots or evening context
+attributes account P&L to sleeves, so the review cannot even name the source.
+That is an observability hole in the exact mechanism that decides whether
+this sleeve trades at all.
+
+**Changes made (one theme, no risk limit touched).**
+1. `alpaca_client.get_positions()` now also maps `unrealized_intraday_pl`
+   (Alpaca's own per-position "today's move vs yesterday close" — the exact
+   decomposition of the daily P&L the breaker reacts to) and `asset_class`.
+   Additive, getattr-guarded; no existing caller reads the new keys.
+2. `evening_context.py` gains a `sleeve_attribution` section: broker
+   positions bucketed by which sleeve's live DB rows claim the symbol
+   (spreads legs → credit_bot; premium_positions / ks_positions /
+   council_positions → their arms; unclaimed → unattributed, which is where
+   manual-experiment legs will show), with per-bucket market value,
+   unrealized and intraday P&L, plus per-sleeve realized-today from our own
+   tables and the account equity/last_equity/daily_pl. Pure partition
+   function + fail-soft builder on its own connection (a missing arm table
+   rolls back and reports instead of poisoning the context build).
+3. `tests/test_sleeve_attribution.py` — 5 offline tests pinning the
+   partition: bucketing, unattributed catch-all, contested-symbol
+   determinism, missing-intraday tolerance, empty inputs. Suite 304 → 309.
+
+**Proposals (not allowed to touch / team decision needed).**
+- (o) Policy question: should the credit sleeve's circuit breaker and
+  drawdown halt key off sleeve-attributed P&L instead of whole-account P&L,
+  now that four arms share the account? Today the sleeve was benched all day
+  by a loss it almost certainly didn't cause. I did NOT change it: scoping
+  the halt down is a risk-limit LOOSENING by construction (it would allow
+  entries the current rule blocks), and the shared-account version is the
+  conservative direction. But if arms 3/4 stay live at material size, the
+  credit sleeve's entry cadence is now coupled to their drawdowns — decide
+  deliberately, with tomorrow's attribution numbers in hand.
+- (p) Smaller alternative if (o) is unwanted: have the halt reason string
+  include the attribution snapshot (even just "credit-book intraday mark
+  $X of account $Y") so the journal records what was actually halted on.
+  Same data the new section computes; needs a decision on calling the
+  positions endpoint inside the cycle path.
+
+**Watch tomorrow.** (1) The new `sleeve_attribution` section in tomorrow's
+context — first real read of who lost the $3.8k; if `unattributed` or an arm
+bucket dominates, (o) becomes urgent. (2) XLK 188/193 and 190/195 bear calls
+vs an XLK tape that just moved +1.38% toward them. (3) snapshots'
+`open_spreads_count` jumped 5 → 7 at the 20:00Z snapshot while spreads_all
+shows 7 open all day — likely two rows were in pending/pending_close counted
+differently, worth one look if it recurs. (4) LLM-vs-rule at higher n, still
+pending real closes.
+
 ## 2026-10-16 evening (reviewing trading day 2026-10-16 — the red index day the book was positioned for: QQQ −2.52%, XLK −3.02%, SPY −1.09%, four bear-call opens into it, equity back over $100k (+$3,242 mark on the day); the defect is the rhetoric audit's THIRD false block — c601 erased a judged GLD pick over a correctly-computed credit-to-risk ratio. Theme: the audit learns ratio arithmetic.)
 
 **Verdicts on 10-15 watch items.** (1) The −$1,632 after-hours mark:

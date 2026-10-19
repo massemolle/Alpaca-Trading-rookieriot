@@ -149,6 +149,14 @@ class AlpacaClient:
                 "current_price": float(p.current_price),
                 "unrealized_pl": float(p.unrealized_pl),
                 "unrealized_plpc": float(p.unrealized_plpc),
+                # Today's mark move (vs yesterday's close) per Alpaca — the
+                # per-position decomposition of the account's daily P&L that
+                # the circuit breaker / drawdown halt react to.
+                "unrealized_intraday_pl": float(p.unrealized_intraday_pl)
+                if getattr(p, "unrealized_intraday_pl", None) is not None else None,
+                "asset_class": p.asset_class.value
+                if hasattr(getattr(p, "asset_class", None), "value")
+                else (str(p.asset_class) if getattr(p, "asset_class", None) is not None else None),
                 "market_value": float(p.market_value),
                 "created_at": str(p.created_at) if getattr(p, "created_at", None) else None,
             }

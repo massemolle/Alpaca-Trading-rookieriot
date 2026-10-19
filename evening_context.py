@@ -47,6 +47,110 @@ def _day_metrics(bars: list[dict]) -> dict:
     }
 
 
+# Which broker symbols each sleeve's live DB rows claim. All four arms trade
+# the SAME paper account, and the credit bot's circuit breaker / drawdown halt
+# key off ACCOUNT equity — so a loss in any sleeve halts this one. Attribution
+# makes every such trip auditable at evening review (2026-10-19: entries were
+# halted all day by a -3.3% account move the credit book's ~$2.9k total max
+# loss could not have produced on its own).
+_SLEEVE_TABLES = {
+    "credit_bot": ("spreads", ["short_symbol", "long_symbol",
+                               "call_short_symbol", "call_long_symbol"]),
+    "premium_buyer": ("premium_positions", ["symbol"]),
+    "killswitch": ("ks_positions", ["symbol"]),
+    "council": ("council_positions", ["symbol"]),
+}
+_LIVE_STATUSES = ["open", "pending", "pending_close"]
+
+
+def _attribute_positions(positions: list[dict], sleeve_symbols: dict) -> dict:
+    """Pure: partition broker positions into sleeves by symbol ownership.
+    First claimant in dict order wins a contested symbol; positions no sleeve
+    claims (e.g. manual experiments' legs) land in 'unattributed'. Sums are
+    broker marks — unrealized_intraday_pl is today's move vs yesterday's
+    close (None from older callers counts as 0)."""
+    buckets = {
+        sleeve: {"n": 0, "symbols": [], "market_value": 0.0,
+                 "unrealized_pl": 0.0, "unrealized_intraday_pl": 0.0}
+        for sleeve in [*sleeve_symbols, "unattributed"]
+    }
+    for p in positions:
+        sym = p.get("symbol")
+        target = next((sl for sl, syms in sleeve_symbols.items() if sym in syms),
+                      "unattributed")
+        b = buckets[target]
+        b["n"] += 1
+        b["symbols"].append(sym)
+        b["market_value"] += float(p.get("market_value") or 0.0)
+        b["unrealized_pl"] += float(p.get("unrealized_pl") or 0.0)
+        b["unrealized_intraday_pl"] += float(p.get("unrealized_intraday_pl") or 0.0)
+    for b in buckets.values():
+        for k in ("market_value", "unrealized_pl", "unrealized_intraday_pl"):
+            b[k] = round(b[k], 2)
+    return buckets
+
+
+def _sleeve_attribution() -> dict:
+    """Decompose the shared account's daily P&L by sleeve: broker positions
+    bucketed by which sleeve's live DB rows claim the symbol, plus each
+    sleeve's realized P&L booked today. Own connection and fail-soft
+    throughout — a missing arm table or a broker error must not sink the
+    context build (and must not poison the main transaction)."""
+    sleeve_symbols: dict[str, set] = {}
+    realized_today: dict[str, float] = {}
+    try:
+        with db._connection() as conn, conn.cursor() as cur:
+            s = db._schema()
+            for sleeve, (table, cols) in _SLEEVE_TABLES.items():
+                try:
+                    cur.execute(
+                        f"""select {', '.join(cols)} from {s}.{table}
+                            where status = any(%s)""",
+                        (_LIVE_STATUSES,),
+                    )
+                    sleeve_symbols[sleeve] = {
+                        v for row in cur.fetchall() for v in row if v
+                    }
+                    cur.execute(
+                        f"""select coalesce(sum(realized_pnl), 0) from {s}.{table}
+                            where closed_at::date = current_date""",
+                    )
+                    realized_today[sleeve] = float(cur.fetchone()[0])
+                except Exception as exc:  # e.g. arm table not created yet
+                    conn.rollback()
+                    sleeve_symbols[sleeve] = set()
+                    realized_today[sleeve] = 0.0
+                    realized_today[f"{sleeve}_error"] = str(exc)[:200]
+    except Exception as exc:
+        return {"error": f"sleeve_attribution unavailable (db): {exc}"}
+    try:
+        from alpaca_client import AlpacaClient
+
+        client = AlpacaClient()
+        acct = client.get_account()
+        positions = client.get_positions()
+    except Exception as exc:
+        return {"error": f"sleeve_attribution unavailable (broker): {exc}",
+                "realized_today": realized_today}
+    return {
+        "note": "The circuit breaker and drawdown halt react to ACCOUNT daily "
+                "P&L, shared by all four sleeves. unrealized_intraday_pl is "
+                "each bucket's share of today's move (broker marks vs "
+                "yesterday close); realized_today is per-sleeve booked P&L. "
+                "account.daily_pl ≈ sum of bucket intraday marks + realized "
+                "fills; 'unattributed' = broker positions no sleeve's live "
+                "rows claim. Marks, not fills — same caveat as menu outcomes.",
+        "account": {
+            "equity": acct["equity"],
+            "last_equity": acct["last_equity"],
+            "daily_pl": round(acct["equity"] - acct["last_equity"], 2),
+            "cash": acct["cash"],
+        },
+        "buckets": _attribute_positions(positions, sleeve_symbols),
+        "realized_today": realized_today,
+    }
+
+
 def _market_day() -> dict:
     """What the market actually did today, per universe ticker — fetched from
     our own broker API at context-build time (credentials are still in the
@@ -134,6 +238,7 @@ def main() -> None:
                 str(r["cycle_id"]): r["llm_reasoning"] for r in cur.fetchall()
             }
     ctx["market_day"] = _market_day()
+    ctx["sleeve_attribution"] = _sleeve_attribution()
     # Feed the previous session back in — especially a REVERTED one: the next
     # engineer must see what was tried and which tests it broke, or it will
     # repeat the same mistake nightly (learned from the first live run, where
