@@ -59,7 +59,9 @@ async def main() -> None:
 
     existing_exposure: dict[str, float] = {}
     cluster_exposure: dict[str, float] = {}
-    for s in db.get_open_spreads():
+    # Live rows, not status='open' — resting closes still hold their legs at
+    # the broker (2026-09-25 doctrine for every exposure read).
+    for s in db.get_live_spreads():
         n = int(s.get("contracts") or 1)
         tot = float(s.get("max_loss", 0)) * n
         existing_exposure[s["underlying"]] = existing_exposure.get(s["underlying"], 0) + tot
@@ -84,7 +86,10 @@ async def main() -> None:
 
             check = risk_gate.check_new_spread(
                 equity=equity, daily_pl_pct=daily_pl_pct,
-                open_spreads_count=len(db.get_open_spreads()) + opened,
+                # Live rows — feeding the cap check status='open' only would
+                # understate the book while closes rest (2026-09-25 doctrine);
+                # the pre_trade_check below already counts live rows.
+                open_spreads_count=len(db.get_live_spreads()) + opened,
                 max_loss=plan.max_loss, expiration=plan.expiration,
                 today=datetime.now(timezone.utc).date(),
                 existing_exposure=existing_exposure, underlying=ticker,

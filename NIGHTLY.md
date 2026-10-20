@@ -2,6 +2,108 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-20 evening (reviewing trading day 2026-10-20 — two QQQ bear-call
+opens in a 30-minute gap between drawdown halts, +$75 realized on the two old
+QQQ closes, then benched from 15:00Z; the first sleeve_attribution read lands
+and names the drag: the killswitch arm carries −$2,251 unrealized on $14.8k of
+market value. Theme: the last status='open'-only counts move to the live-book
+read — the 5→7 snapshot flicker, diagnosed and fixed.)
+
+**Verdicts on 10-19 watch items.** (1) sleeve_attribution first read: DONE,
+and it answers the question the 10-19 halt posed. Buckets at tonight's build
+(account equity $97,269.70, daily mark −$605.27, $3,742 below the 101,012
+peak): killswitch $14,769 market value / **−$2,251 unrealized** / −$229
+intraday; credit_bot −$57 unrealized / −$209 intraday / **+$75 realized**
+(the only sleeve to book profit today); premium_buyer −$128 / −$168 intraday;
+council (AAPL) −$43; unattributed = one SPY share ($49.83) — the partition is
+clean, nothing material is unclaimed. Caveat: bucket unrealized is
+since-entry, not since-peak, so this is strong evidence, not exact
+attribution — but the largest standing drag on the account that halts this
+sleeve is the killswitch book, roughly 60% of the below-peak gap. Proposal
+(o) now has its numbers. (2) XLK bear calls: XLK −0.27% to 185.45, shorts at
+188/190 still 1.4%/2.4% OTM, no stop; tension eased a notch, watch holds.
+(3) The 5→7 `open_spreads_count` flicker RECURRED exactly on schedule (5
+through 19:30Z, 7 at 20:00Z) — diagnosed tonight, it became the theme (below).
+(4) LLM-vs-rule at higher n: no — n went DOWN as the window rolled (LLM
+−$48.22/close over 9 vs rule −$47.37 over 76 vs random −$56.60 over 10).
+Parity with the rule, both above random, no tune trigger; still open.
+
+**The day (per analyze-regret).** Quiet mixed tape (SPY +0.32%, QQQ −0.15%
+on a −0.43% gap, IWM +1.66%, XLK −0.27%). The 13:30Z cycle was
+drawdown-halted (equity 3.5% below peak), equity then poked above the
+97,981.64 line for exactly the 14:02Z and 14:31Z cycles — the only two
+judged slates of the day — and from 15:00Z the halt held entries off through
+the close (11 of 13 market cycles benched). Both judged cycles opened QQQ
+bear calls: c635 736/741 ($116 fill, fresh exposure after the two old QQQ
+spreads closed +$33/+$42 at 13:30Z) and c636 742/747 ($111 fill, an explicit
+"deliberate add" that puts QQQ back at the D25 cap 29 minutes after it
+cleared). Step 2, ablation recent_7d: parity (numbers above), no trigger.
+Step 3, regret: the best dropped row is SPY 784/789 at a +$24.5 open mark
+(c636) — class (a) noise; the cited facts verify (SPY signal 0.101, ADX
+13.65, $444.5 existing SPY exposure). c635 is the day's one shadow
+disagreement — shadow took SPY 0.482, whose menu row marks −$17.5 vs the
+LLM's QQQ at −$32; noise either way. No (b)/(c) pattern; the judge is
+healthy. Observation for (o), not a defect: both of today's entries exist
+only because other sleeves' mark noise bounced the account above the −3%
+line for one hour — entry cadence is now literally sampled from another
+book's volatility.
+
+**The finding — the flicker is the 2026-09-25 defect class, last survivors.**
+Snapshots wrote `open_spreads_count=len(db.get_open_spreads())`
+(status='open' only), while the two XLE bull puts sat `pending_close` all
+afternoon (the familiar quote-dead resting closes); at the bell the resolver
+reverts them to `open` → 5 jumps to 7. The gates, budget, and exposure reads
+all moved to `get_live_spreads()` (open + pending + pending_close) after
+2026-09-25 — the snapshot writes never did, so the dashboard and this review
+understated the carried book by two spreads for most of two days. Worse,
+`manual_experiment.py` fed its `check_new_spread` call BOTH an
+open-only count AND open-only exposure/cluster dicts — real gate inputs
+(backstopped only by `pre_trade_check`'s own live re-read).
+
+**Changes (one theme, a tightening where it touches a gate).**
+1. `bot.py` (both snapshot sites) and `record_snapshot.py`: snapshot count
+   moves to `get_live_spreads()`.
+2. `manual_experiment.py`: the cap-check count and the exposure/cluster
+   loop move to `get_live_spreads()` — more rows counted, blocks sooner.
+3. `tests/test_live_book_truth.py`: parametrized source pin — bot.py,
+   record_snapshot.py, manual_experiment.py may not reference
+   `get_open_spreads` at all (every count they take is exposure-side).
+   **312 passed** (was 309).
+
+**Deliberately not changed.** (a) `portfolio_beta.py` and
+`spread_monitor.py` still read status='open' — beta telemetry omits
+pending_close legs' delta and the WS monitor never subscribes them, but a
+pending ENTRY's legs aren't at the broker yet, so `get_live_spreads` isn't
+trivially right there either; both are monitoring-only, logged as proposal
+(v). (b) `emergency_flatten.py` (forbidden file) flattens open+pending but
+skips `pending_close` rows — correct while their close orders work, wrong if
+a quote-dead close rests forever; proposal (w), team's call. (c) No reasoner
+tune — no pattern. (d) Proposal (o) — the halt-scoping decision — remains
+team-only; tonight's attribution read is the evidence it was waiting for.
+
+**Watch tomorrow.** (1) sleeve_attribution day 2: if the killswitch bucket's
+marks keep the account pinned under the drawdown line, the credit sleeve
+stays unplugged indefinitely while in good standing itself — (o) goes from
+"decide deliberately" to urgent. (2) QQQ back at the D25 cap: 736/741 and
+742/747 vs QQQ 717.21 (2.6%/3.5% OTM) — the stacked-add shape that built the
+10-07 cascade, now capped at 2 by design; marks +$22.5/−$32 tonight. (3) XLE
+10-23 expiry is 3 days out, both bull puts ~6% OTM with the usual quote-dead
+close risk — if they drift to settlement unbooked, the censored column grows
+and proposals (l)/(n) get their exhibit. (4) `open_spreads_count` should now
+read the live count all day — the 5→7 flicker should be gone from
+tomorrow's snapshots. (5) XLK 188/190 shorts, watch holds.
+
+**Proposals (team's call).** NEW: (v) move portfolio_beta /
+spread_monitor to a "legs at the broker" read (open + pending_close); (w)
+emergency_flatten should also sweep pending_close rows whose close orders
+have been resting longer than a cycle. Standing, unchanged: (o) sleeve-
+scoped halts — NOW WITH NUMBERS (killswitch −$2,251 unrealized dominates
+the below-peak gap), (p) attribution in the halt reason string, (u) bars
+refresh + lab re-run, (t) cross-sleeve leg visibility, (q) dedup window,
+(l) single-leg buy-to-close, (n) expiry P&L backfill, (o-status)
+closed_force, (p-trunc) multi-pick truncation order, (h)/(i)/(k), and the
+10-13 no-BLOCKED-prefix one-liner.
+
 ## 2026-10-19 evening (reviewing trading day 2026-10-19 — the halted Monday: the −3% circuit breaker read −3.47% at the 13:30Z OPEN cycle and the 5-day drawdown halt held entries off the rest of the day, on a green tape (SPY +0.43%, QQQ +1.20%); the account's −$3.8k daily mark exceeds the credit book's entire ~$2.9k summed max loss, so the loss that halted this sleeve came mostly from elsewhere in the shared account — and nothing we log can say where. Theme: sleeve attribution for account-level halt trips.)
 
 **Verdicts on 10-16 watch items.** (1) XLK bounce risk: partially realized —

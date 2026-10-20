@@ -30,6 +30,7 @@ import asyncio
 import dataclasses
 from datetime import date, timedelta
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -250,6 +251,24 @@ def test_pretrade_cap_counts_pending_close_rows(fake_db, monkeypatch):
     result = run(pre_trade_check(mcp, FakeClient(), plan))
     assert not result.allowed
     assert "concurrent" in result.reason
+
+
+@pytest.mark.parametrize("fname", ["bot.py", "record_snapshot.py", "manual_experiment.py"])
+def test_counts_outside_the_gates_also_use_live_rows(fname):
+    """2026-10-19/20: snapshots' open_spreads_count read 5 all afternoon while
+    7 spreads' risk was live (two XLE rows parked in pending_close by resting
+    profit-target closes) — the evening review chased the 5→7 'flicker' two
+    nights running. The gates learned the live-rows doctrine on 2026-09-25;
+    the snapshot writes (bot.py, record_snapshot.py) and manual_experiment's
+    risk-gate inputs were the last status='open'-only counts. Every count
+    these files take is an exposure-side read, so pin them off
+    get_open_spreads entirely."""
+    src = Path(__file__).resolve().parent.parent.joinpath(fname).read_text()
+    assert "get_open_spreads" not in src, (
+        f"{fname} must count live rows (open + pending + pending_close), "
+        "not status='open' only — see db.get_live_spreads's docstring"
+    )
+    assert "get_live_spreads" in src, f"{fname} lost its live-book read"
 
 
 def test_pretrade_concentration_counts_pending_close_exposure(fake_db):

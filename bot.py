@@ -738,7 +738,7 @@ async def run_cycle() -> None:
                 equity=float(account["equity"]),
                 last_equity=float(account.get("last_equity")) if account.get("last_equity") else None,
                 cash=float(account.get("cash")) if account.get("cash") else None,
-                open_spreads_count=len(db.get_open_spreads()),
+                open_spreads_count=len(db.get_live_spreads()),
                 daily_pl=daily_pl,
                 daily_pl_pct=daily_pl_pct,
                 spy_price=benchmark.spy_mid(client),
@@ -1084,7 +1084,12 @@ async def run_cycle() -> None:
             equity=float(fresh["equity"]),
             last_equity=float(fresh.get("last_equity")) if fresh.get("last_equity") else None,
             cash=float(fresh.get("cash")) if fresh.get("cash") else None,
-            open_spreads_count=len(db.get_open_spreads()),
+            # Live rows, not status='open' (same 2026-09-25 doctrine as every
+            # exposure read): a pending_close spread's legs are still at the
+            # broker, so the snapshot otherwise understates the carried book —
+            # 2026-10-19/20 the count read 5 all afternoon while 7 spreads'
+            # risk was live (two XLE rows parked in pending_close).
+            open_spreads_count=len(db.get_live_spreads()),
             daily_pl=f_pl,
             daily_pl_pct=f_pl_pct,
             spy_price=benchmark.spy_mid(client),

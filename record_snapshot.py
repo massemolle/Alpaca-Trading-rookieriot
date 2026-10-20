@@ -20,7 +20,9 @@ def main() -> None:
     last_equity = float(account["last_equity"])
     daily_pl = equity - last_equity
     daily_pl_pct = daily_pl / last_equity if last_equity else 0.0
-    open_count = len(db.get_open_spreads())
+    # Live rows (open + pending + pending_close), matching bot.py's snapshot:
+    # a resting close still holds its legs at the broker (2026-09-25 doctrine).
+    open_count = len(db.get_live_spreads())
     db.record_account_snapshot(
         equity=equity,
         last_equity=last_equity,
