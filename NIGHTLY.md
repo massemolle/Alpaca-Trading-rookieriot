@@ -2,6 +2,93 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-10-21 evening (reviewing trading day 2026-10-21 — the fully benched
+day: all 13 market-hours cycles drawdown-halted, equity pinned 3.5–4.6% below
+the 101,012 peak, zero judged slates; day 2 of the killswitch pin, which makes
+proposal (o) urgent exactly as yesterday's watch item predicted. Theme: the
+virtual books were realizing exits on after-hours quotes — the 20:30Z cycle
+"stopped" the XLK rows at prices no order could trade; counterfactual exits
+now require an open session, like the real book.)
+
+**Verdicts on 10-20 watch items.** (1) sleeve_attribution day 2: killswitch
+−$3,025 unrealized (−$887 intraday) on $14.0k market value vs credit_bot
+−$328 (−$534 intraday, $0 realized); account daily mark −$1,380. The pin
+held all day — the credit sleeve never traded, benched by a drag it didn't
+create, for the second consecutive session. (o) goes from "decide
+deliberately" to urgent. (2) QQQ cap pair vs QQQ +1.12% to 725.25: shorts
+736/742 now 1.5%/2.3% OTM, menu marks −$63/−$19.5 — stops armed, nearest
+QQQ exposure yet. (3) XLE 10-23 expiry 2 days out: both bull puts sat
+pending_close all day behind resting close orders (recon: "5 DB-open, 2
+open orders"), reverted to open at the bell — the quote-dead drift toward
+unbooked settlement continues, (l)/(n) exhibit grows. (4) The 5→7
+snapshot flicker is GONE — open_spreads_count read 7 at every snapshot.
+(5) XLK watch: tension realized — XLK +1.66% to 188.52 put the 188 short
+ITM; see the finding.
+
+**The day (per analyze-regret).** SPY +0.53%, QQQ +1.12%, XLK +1.66% on a
+quiet tape (SPY RV20 8.8%). Step 1: zero judged cycles — every market-hours
+cycle skipped on the 5-day drawdown halt (equity 96,347–97,498 vs peak
+101,012), so the funnel never ran. Step 2, ablation recent_7d: LLM
+−$48.22/close (n=9) vs rule −$50.62 (n=81) vs random −$77.50 (n=13) —
+LLM ≈ rule, both above random, no tune trigger (caveat below: tonight's
+shadow/menu windows include after-hours realizations). Step 3, regret: no
+new decisions to classify; no pattern; the judge was unexaminable today.
+The whole day was decided upstream by the account-level halt — the weak
+link is not in this repo's selection code, it's the shared-account coupling
+already filed as (o).
+
+**The finding — virtual books realized exits the real book could never
+take.** `bot.manage_open_spreads` requires an open session for every exit
+(ordinary and force-close both); `shadow_book.manage_open` had no such
+guard and ran on every cron cycle, including 13:00Z pre-open and
+20:30Z/21:00Z post-close. Tonight's exhibit: the shadow, random, and menu
+rows for XLK 188/193 and 190/195 were all stamped `closed_stop` at
+20:30:15–16Z — after the close — at marks (−$162, −$144.5) the real book
+(same strikes, same quotes, correctly guarded) lawfully held through the
+bell. Of the 60 virtual closes visible in tonight's context, 9 carry 20:30Z
+timestamps. Those prices are untradeable, and they flow directly into
+`ablation_totals` and `menu_regret.outcome_usd` — the two tables every
+nightly selection decision reads. The bias is not sign-stable (an
+after-hours stop can print better or worse than the next open), but it is
+structural: the counterfactual books were playing by different session
+rules than the policy they benchmark.
+
+**Changes (one theme, no live-trading behavior touched).**
+1. `shadow_book.manage_open` gains `market_open: bool = True`; when the
+   market is closed it still refreshes two-sided marks (the 21:00Z evening
+   context build reads them) but realizes nothing — no stop, no profit
+   target, no expiry settlement. Deferred exits re-evaluate at the next
+   open-market cycle, exactly like the real book's "will retry after open".
+2. `bot.py` passes its cycle `market_open` flag through.
+3. `tests/test_shadow_book_market_hours.py` (5 tests): closed market marks
+   but never realizes (stop-worthy mark held), closed market defers expiry
+   settlement, open-market stop unchanged, default stays open-market
+   behavior, and a source pin that bot.py forwards the flag. Suite 312 → 317.
+
+**Deliberately not changed.** (a) The already-written after-hours rows in
+`shadow_positions` (incl. tonight's three XLK realizations) stand — no
+retroactive DB surgery from this session; discount them when reading
+recent_7d shadow/menu totals this week. (b) The real exit path — already
+correct. (c) No risk limit, no prompt (no judged cycles = no evidence).
+
+**Watch tomorrow.** (1) XLK 188/193 and 190/195 at the 13:30Z open — the
+real stops will likely fire; the realized prints vs the virtual after-hours
+−$162/−$144.5 are a free natural experiment on the size of the bias just
+fixed. (2) Killswitch pin day 3: if the halt holds again, the sleeve has
+been dark three sessions while in good standing — (o) needs a team decision
+this week. (3) XLE 10-23 expiry: resting closes vs settlement, censored
+column. (4) QQQ 736/742 shorts vs any follow-through above 725. (5) New
+virtual closes should only ever timestamp inside 13:30–20:00Z now — one
+20:30Z `closed_*` row after tonight means the guard missed a path.
+
+**Proposals (team's call).** Standing list unchanged: (o) sleeve-scoped
+halts — now URGENT (two full sessions benched on the killswitch book's
+marks), (p) attribution in the halt reason string, (v)/(w) from 10-20,
+(u), (t), (q), (l), (n), (h)/(i)/(k). NEW (x): a one-time annotation (or
+exclusion flag) for pre-guard after-hours virtual closes so ablation
+windows stop carrying untradeable prints — DB surgery, so not done from
+this session.
+
 ## 2026-10-20 evening (reviewing trading day 2026-10-20 — two QQQ bear-call
 opens in a 30-minute gap between drawdown halts, +$75 realized on the two old
 QQQ closes, then benched from 15:00Z; the first sleeve_attribution read lands

@@ -391,7 +391,7 @@ def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 40) -> list[int]
     return out
 
 
-async def manage_open(mcp) -> None:
+async def manage_open(mcp, *, market_open: bool = True) -> None:
     try:
         for row in _get_open():
             try:
@@ -401,6 +401,22 @@ async def manage_open(mcp) -> None:
             except Exception:
                 logger.exception("shadow mark failed for %s", row["id"])
                 continue
+            # An ask-only (bid-less short) mark is as fictional for the
+            # virtual books as it is for the real one (2026-09-25: a $250
+            # at-open "mark" on a ~$25 spread) — don't store it as an
+            # outcome, and don't let it realize a fake virtual stop; the
+            # last honest mark stands until the book is two-sided again.
+            if mark is not None and two_sided:
+                _mark(row["id"], mark)
+            # Realized exits require an open session, exactly like the real
+            # book (bot.manage_open_spreads skips exits when closed): the
+            # 20:30Z cron cycles were realizing virtual stops on after-hours
+            # quotes no order could trade at (2026-10-21: XLK 188/193 and
+            # 190/195 "stopped" at 20:30:16Z while the real spreads, same
+            # strikes, lawfully held for the next open). Marks above still
+            # refresh so the evening context stays current; outcomes wait.
+            if not market_open:
+                continue
             force, _force_reason = risk_gate.should_force_close(
                 expiration=_as_date(row["expiration"])
             )
@@ -408,13 +424,6 @@ async def manage_open(mcp) -> None:
                 if force:
                     _close(row["id"], "closed_expiry", None)
                 continue
-            # An ask-only (bid-less short) mark is as fictional for the
-            # virtual books as it is for the real one (2026-09-25: a $250
-            # at-open "mark" on a ~$25 spread) — don't store it as an
-            # outcome, and don't let it realize a fake virtual stop; the
-            # last honest mark stands until the book is two-sided again.
-            if two_sided:
-                _mark(row["id"], mark)
             close, _reason = risk_gate.should_close(
                 credit_received=float(row["credit_received"]), current_mark=mark,
                 short_leg_two_sided=two_sided,

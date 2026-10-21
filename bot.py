@@ -767,7 +767,7 @@ async def run_cycle() -> None:
 
     async with AlpacaMCP() as mcp:
         close_notes = await manage_open_spreads(mcp, client, market_open=market_open)
-        await shadow_book.manage_open(mcp)
+        await shadow_book.manage_open(mcp, market_open=market_open)
         await portfolio_beta.record_beta_weighted_delta(mcp)
 
         # Budget against the LIVE book (open + entry/close in flight): a
