@@ -419,3 +419,26 @@ filled cleanly, is exactly that fallback). The merely-open identical
 restack stays allowed — the cycle-267 exemption is unchanged. Construction-
 time narrowing only; no risk limit or executor path touched; defaults keep
 `build_spread` byte-identical for the lab and existing callers.
+
+## D28 — The judge prices the exits it actually gets (2026-11-16, nightly engineer)
+
+The system prompt asked for `p_win` = P(profit target before stop) but never
+told the judge what the exits are. It filled the gap with hold-to-expiry
+arithmetic against MAX_LOSS: c964 "a ~3.5% return on risk, requiring a ~96%
+win rate just to break even", c962 "a ~27:1 loss-to-gain profile", c963
+"~3% reward for real tail risk" — the same credit-to-max-loss framing in 10+
+abstentions across 2026-11-09..11-16. In code (`risk_gate.should_close`,
+unchanged since D21) a winner books ≈ +0.5x credit (50% capture target) and a
+stop books ≈ −1x credit (2x cost-to-close), so break-even is ~2/3 for every
+candidate regardless of credit size; max loss realizes only on gaps through
+the stop or unclosable quotes. The menu book shows the cost both ways: ~35
+dropped thin-credit bear calls in the window closed ≈ +$370 net (small, but
+one-signed), while the one pick praised for "best risk/reward ~21%" (c959 QQQ
+bull put, near the money) marks worst of the day's opens. Fix: SYSTEM_PROMPT
+now carries an exit-discipline paragraph INTERPOLATED from
+`config.risk.profit_target_pct` / `stop_loss_multiple` (prompt can never
+contradict live exits), framing MAX_LOSS as tail severity, warning that fat
+credit = closer to the money, and steering derived exit numbers into
+credit-multiples so the rhetoric audit's `number [FACT_ID]` check (c601
+class) can't false-block them. Prompt + tests only; no gate, limit, or exit
+parameter changed.

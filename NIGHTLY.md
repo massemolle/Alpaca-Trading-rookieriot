@@ -2,6 +2,96 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-16 evening (reviewing trading day 2026-11-16 — first session in 26
+days: every evening session since 10-21 died on expired OAuth, and three
+11-13 cycles (952–954) lost their judged slates to the same failure inside
+`claude -p`. The bot itself traded a healthy red Monday: SPY −1.89%,
+QQQ −2.68%, 5 opens, 8 reasoned abstentions, and the drawdown-halt era is
+over — equity $103.9k, above the old $101k peak. Theme: the judge prices
+hold-to-expiry trades the book never makes; the prompt now teaches the
+coded exits. Logged as D28.)
+
+**The gap first.** `previous_session.review` = "Failed to authenticate: OAuth
+session expired and could not be refreshed" — and NIGHTLY.md's last entry is
+10-21, so that failure has eaten every session for 3.5 weeks (the gate log
+shows the suite green each night; nothing was reverted, nothing was done).
+The 10-21 watch items are stale but two resolved themselves: the killswitch
+pin ended (account made new highs), and tonight's context shows zero
+after-hours virtual closes — the 10-21 session-hours guard held.
+
+**The day (per analyze-regret).** Step 2, ablation: recent_7d has NO closed
+llm_real or random rows (nothing the judged/random arms opened closed inside
+the window) vs shadow 332 closes at −$6,949 (−$20.93/close) — the rule arm
+traded the falling week mechanically and bled; no LLM-vs-rule read on current
+form, so no tune trigger FROM ablation. Lifetime: rule −$19.58/close (n=1193)
+vs LLM −$28.75 (n=81, ≈ −$24.4 after the $349 unbooked-expiry ceiling) vs
+random −$38.57 (n=92) — era-biased, rule ≥ LLM ≥ random, same as 10-20/21.
+Step 3, regret (cycles 909–971, 11-09..11-16): the drops split cleanly by
+direction. Dropped bull_puts: ~20 rows, nearly all stopped (−$57.5, −$53,
+−$51.95, −$47.95…) — correct drops on a falling tape, class (a), the judge's
+direction read was excellent all week. Dropped bear_calls: ~35 rows summing
+≈ +$370 (IWM +$23.5/+$27.5/+$21…, TLT +$30.5/+$24.5, GLD +$21.5/+$17.5) —
+one-signed opportunity cost. Step 4: the cited reason is the SAME arithmetic
+every time, and it is wrong about this system: c964 "a $17 credit against
+$483 max loss is a ~3.5% return on risk, **requiring a ~96% win rate just to
+break even**"; c962 "$18 credit against $482 max loss is a **~27:1
+loss-to-gain profile**"; c963 "$15 on $485 … ~3% reward for real tail risk";
+same framing in c961/965/967/968/969/970/971. That is hold-to-expiry math.
+The coded exits (`risk_gate.should_close`) take profit at 50% captured and
+stop at 2x cost-to-close: a winner books ≈ +0.5x credit, a stop ≈ −1x credit,
+break-even ≈ 2/3 for EVERY candidate regardless of credit size — the menu's
+realized prints confirm it (wins ≈ half credit, stops ≈ 1–1.5x credit, never
+near max loss). Class (b): MAX_LOSS used as the break-even denominator,
+repeated across ≥10 decisions and ≥4 days. The same error flatters the other
+side: c959 took the near-money QQQ 635/630 bull put as "best risk/reward …
+~21%, nearly double every other candidate's payoff" — fat credit = closer to
+the money = lower p_win, and it marks −$28.95, worst of the day's five opens.
+
+**Change (one theme, prompt + tests, per tune-reasoner-prompt).**
+1. `llm_reasoner.py` SYSTEM_PROMPT gains an exit-discipline paragraph,
+   INTERPOLATED from `config.risk.profit_target_pct` / `stop_loss_multiple`
+   so the prompt can never contradict the live exit parameters: states the
+   +0.5x / −1x / ~67%-break-even payoff, reframes `{TICKER}_MAX_LOSS` as tail
+   severity (gap through the stop, unclosable market) never a break-even
+   denominator, warns that a fat credit on the same width means a LOWER
+   p_win, and steers derived exit numbers into credit-multiples so the
+   rhetoric audit's `number [FACT_ID]` check can't false-block them (the
+   c601 class). The risk/reward bullet now points at this paragraph instead
+   of "(credit relative to max loss)". JSON contract, citation rule, budget
+   and stacking guidance untouched (their pin tests pass unmodified).
+2. `tests/test_reasoner_exit_discipline.py` (5 tests, computed from config,
+   not hardcoded). Suite 317 → 322.
+3. `PLAN.md` D28 logs the decision.
+
+**Falsifiable prediction.** Tomorrow's journal should contain ZERO break-even-
+vs-max-loss arithmetic ("need a ~9x% win rate", "N:1 loss-to-gain"); dropped-
+bear-call regret (small-credit far-OTM rows the menu closes green) should
+shrink; abstention rate may dip modestly. The failure mode to watch is the
+inverse error: if the judge starts taking thin-credit spreads INDISCRIMINATELY
+(p_win still has to clear 0.55 against a 2/3 break-even — the paragraph makes
+the bar explicit, not lower) or keeps favoring fat-credit near-money spreads
+citing the new payoff, revert the paragraph.
+
+**Deliberately not changed.** (a) No signal/threshold edits off this window —
+the falling week is exactly the regime bias the evening-context caveats warn
+about; the bear-call regret is one-signed partly BECAUSE the tape fell all
+week. (b) The 0.55 p_win floor and all gates. (c) shadow/menu instruments.
+
+**Proposals (team's call).** NEW (y): the OAuth expiry has now cost 26
+evening sessions AND three live judged cycles (952–954, `claude -p failed`);
+`REASONER_MODE=claude_code` shares that credential path — a cron-side
+pre-flight (`claude -p "ok"` at 13:00Z, alert on failure) or a standing
+re-auth runbook line would have caught it on day 1. Infrastructure, not this
+repo's code — not touched. Standing list ((o) now moot in fact but the
+coupling remains, (p), (v)/(w), (u), (t), (q), (l), (n), (x)) unchanged.
+
+**Watch tomorrow.** (1) The prediction above — verdict it. (2) The five
+13:30Z-era opens (QQQ 635/630 especially) against any bounce; stops are the
+mechanism, let them work. (3) First post-fix journal: does the judge cite the
+exit paragraph correctly or try to bracket-cite "67%" (audit should only warn,
+not block — it has no fact id to mismatch). (4) llm_real recent_7d should
+finally repopulate as this week's opens close.
+
 ## 2026-10-21 evening (reviewing trading day 2026-10-21 — the fully benched
 day: all 13 market-hours cycles drawdown-halted, equity pinned 3.5–4.6% below
 the 101,012 peak, zero judged slates; day 2 of the killswitch pin, which makes

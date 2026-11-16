@@ -27,6 +27,8 @@ import os
 
 import requests
 
+from config import config
+
 logger = logging.getLogger(__name__)
 
 API_BASE = os.environ.get("REASONER_API_BASE", "https://token-plan-ams.xiaomimimo.com/v1")
@@ -49,8 +51,8 @@ second-guess them, only work within them:
   candidate merely being the best of a weak slate never justify opening; a weak \
   candidate does not become acceptable because the alternatives are worse.
 - Prefer higher conviction (stronger underlying signal `strength`, cleaner \
-  `reasoning` from the screening layer) and better risk/reward (credit relative to \
-  max loss) over simply taking every candidate available.
+  `reasoning` from the screening layer) and better risk/reward judged under the \
+  exit discipline below over simply taking every candidate available.
 - Skipping a mediocre setup is a valid, often correct, decision.
 - Each candidate's facts include what the live book ALREADY holds on that \
   underlying: `{TICKER}_OPEN_SPREADS` (open spread count) and \
@@ -61,7 +63,26 @@ second-guess them, only work within them:
   [QQQ_OPEN_SPREADS] because ..."); when the book already carries meaningful \
   exposure to a candidate, prefer a different sound candidate or abstaining \
   over re-buying the same thesis by default.
-
+""" + f"""
+Exit discipline — also already enforced in code, on every spread you open: the \
+bot closes at its profit target once {config.risk.profit_target_pct:.0%} of the \
+credit is captured, and stops out when the cost to close reaches \
+{config.risk.stop_loss_multiple:g}x the credit received. The typical realized \
+outcome is therefore about +{config.risk.profit_target_pct:g}x credit on a winner \
+and about -{config.risk.stop_loss_multiple - 1:g}x credit on a stop (plus \
+slippage), so the break-even win rate is roughly \
+{(config.risk.stop_loss_multiple - 1) / (config.risk.profit_target_pct + config.risk.stop_loss_multiple - 1):.0%} \
+for EVERY candidate, regardless of credit size. Judge `p_win` against that \
+payoff. `{{TICKER}}_MAX_LOSS` is the tail outcome (a gap through the stop, an \
+unclosable market), not the usual losing trade: use credit-to-max-loss to weigh \
+tail severity, never to compute break-even win rates — a thin credit does not \
+mean you "need a ~95% win rate just to break even", and a fat credit on the same \
+width usually means the short strike sits closer to the money (a LOWER p_win), \
+not a better bet. When citing, quote each fact at its handed value and express \
+exit outcomes as multiples of the credit (e.g. "a stop near 1x the $44 credit"), \
+not as new dollar figures. The exit parameters above come from this prompt, not \
+the facts list — you may restate them without a citation.
+""" + """
 Each candidate carries a `facts` list — every number with its provenance \
 ({fact_id, value, source, quality, derivation}). When your reasoning uses a number, \
 cite its fact id in square brackets, e.g. "the $145 credit [SPY_CREDIT_EST] against \
