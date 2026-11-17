@@ -2,6 +2,77 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-17 evening (reviewing trading day 2026-11-17 — D28's prediction
+confirmed on its first full day; the judge is behaving; the account's red
+day was the killswitch sleeve, not us. Small theme: the journal finally
+says WHY spread_builder fails, closing a 2.5-month-old opaque flag.)
+
+**D28 verification first.** Last night's falsifiable prediction: no more
+break-even-vs-max-loss arithmetic in the journal. Confirmed in all 10 judged
+cycles (976–988): every entry prices against the coded exits ("~67%
+break-even", "+0.5x/−1x credit payoff"), none against max loss. The warned
+failure mode (taking thin credits indiscriminately / doubling down on
+fat-credit near-money picks) did not appear either — the judge used the
+fat-credit heuristic to *skip* near-money SPY shorts on weak signals
+(c980/982/984) and to *take* the same ~10% credit-to-width SPY when the
+signal was stronger and the book clean (c987). D28 stands; no prompt edit
+tonight.
+
+**The day.** Red tape (SPY −1.03%, IWM −1.48%, XLF −1.89%), account
+−$1,945 — but `sleeve_attribution` pins −$2,792 of intraday mark on the
+killswitch sleeve; the credit sleeve was −$34 on 5 open spreads. Judged
+cycles: 3 opens (IWM 281/286 c979, IWM 280/285 c986, SPY 757/762 c987 — the
+three strongest signals of the day, all bear calls with the tape), 10
+abstentions on weak slates with correct stacking discipline. The 11-16 watch
+items resolved cleanly: QQQ 635/630 (the one "against the tape") stopped out
+−$54 at 18:00Z as designed; IWM 282.5/287.5 took profit +$25.
+
+**Regret: no pattern.** 13 dropped candidates today, all small marks (−10.5
+to +13.5 open; one closed +$24.5 SPY). Aggregate menu history still favors
+the judge's selectivity: 94 drops total −$1,247.9 (49 positive worth only
++$791.5). Ablation recent_7d avg/close: llm −$14.5 (n=2) > shadow −$21.15
+(n=315) > random −$88.5 (n=1) — healthy ordering, tiny llm sample. Nothing
+to act on; the prompt change needs soak time, and I won't stack a second
+selector edit on one day of evidence.
+
+**The one thing evidence did demand.** The journal has recorded
+spread_builder failures as the bare string "no viable spread plan" since the
+09-01 funnel-observability work — and XLK + TLT have died with exactly that
+string in EVERY cycle since 2026-09-02 (flagged 09-02 "worth one diagnostic
+look"; never diagnosed, because the real reasons sat at INFO in a 14MB
+bot.log). Tonight's log dig: **XLK** — every expiration's OTM calls fail the
+12% bid-ask gate on the indicative feed (82–83 strikes, zero both OTM and
+liquid); **TLT** — liquid shorts exist, but every snapped $5-wide long leg
+is a penny option failing even the relaxed 25% long-leg gate (it builds only
+occasionally, e.g. the open 80/85 from 11-16). Both are the builder
+correctly refusing junk, not bugs.
+
+**Changes.** `spread_builder.py`: `build_spread` / `_build_for_expiration`
+gain an optional `failure_reasons` out-list; each failure branch (no
+contracts in window, no OTM+liquid strike, no tradeable long leg,
+non-positive credit, non-positive max_loss) appends one per-expiration line
+mirroring its log message. Diagnostic only — build behavior byte-identical,
+default arg None. `bot.py` passes the list and journals
+`["no viable spread plan", ...specifics]`. New
+`tests/test_spread_builder_failure_reasons.py` (5 tests); suite 322 → 327.
+From tomorrow, `gate_rejections` answers this class of question directly.
+
+**Proposals (not allowed / not tonight).** (a) The OAuth pre-flight check
+(11-16 proposal y) remains open — it worked tonight but has no guard.
+(b) XLK/TLT: with reasons now journaled, the team can decide after a few
+days whether to drop XLK from the live universe (it has built nothing in
+2.5 months and costs 2 chain fetches + 2 snapshot batches per cycle) —
+dropping a ticker is a universe decision, not mine to make unilaterally.
+(c) `llm_real` still carries 5 expiry-unbooked rows (≤$349 credit missing
+from its realized totals, ablation-biasing); booking expired-OTM settlement
+needs the underlying's expiry close and touches reconciler conventions —
+team call, written here rather than coded.
+
+**Watch tomorrow.** (1) First journaled builder reasons — confirm XLK/TLT
+entries carry the specifics. (2) D28 soak, day 2: same check as today.
+(3) The 5 open bear calls (SPY 757/762, IWM 280/285 + 281/286, GLD 372/377,
+TLT 80/85) into a bouncing vs falling tape — stops are the test.
+
 ## 2026-11-16 evening (reviewing trading day 2026-11-16 — first session in 26
 days: every evening session since 10-21 died on expired OAuth, and three
 11-13 cycles (952–954) lost their judged slates to the same failure inside

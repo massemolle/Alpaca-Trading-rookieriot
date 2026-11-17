@@ -566,6 +566,7 @@ async def find_candidates(
                 gate_rejections.append({"ticker": sig.ticker, "stage": "spread_builder",
                                        "reasons": ["one-sided underlying quote (no usable mid)"]})
                 continue
+            build_failures: list[str] = []
             plan = await build_spread(
                 mcp, sig.ticker, sig.direction,
                 spot_price=spot_mid, realized_vol=realized_vol,
@@ -573,6 +574,7 @@ async def find_candidates(
                 held_short_symbols=held_short_symbols,
                 closing_short_symbols=closing_short_symbols,
                 closing_long_symbols=closing_long_symbols,
+                failure_reasons=build_failures,
             )
         except Exception:
             logger.exception("Failed to build spread for %s", sig.ticker)
@@ -582,7 +584,7 @@ async def find_candidates(
         if plan is None:
             logger.info("%s: no viable spread plan (spread_builder returned None)", sig.ticker)
             gate_rejections.append({"ticker": sig.ticker, "stage": "spread_builder",
-                                   "reasons": ["no viable spread plan"]})
+                                   "reasons": ["no viable spread plan"] + build_failures})
             continue
 
         contracts = optimal_contracts(

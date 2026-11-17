@@ -218,6 +218,7 @@ async def build_spread(
     held_short_symbols: frozenset[str] | set[str] = frozenset(),
     closing_short_symbols: frozenset[str] | set[str] = frozenset(),
     closing_long_symbols: frozenset[str] | set[str] = frozenset(),
+    failure_reasons: list[str] | None = None,
 ) -> SpreadPlan | None:
     """signal_direction is the vendored Signal's own 'long'/'short' field.
     `spot_price` is the underlying's current mid quote, `realized_vol` the
@@ -251,6 +252,15 @@ async def build_spread(
     Expirations inside the DTE window are tried nearest-first (most theta
     decay realized within the judged period): the first one that builds an
     on-width plan wins, an off-width plan is kept only as a last resort.
+
+    `failure_reasons`, when provided, collects one human-readable line per
+    failed build attempt (per expiration, or chain-level). Before this the
+    journal recorded every builder failure as the single opaque string
+    "no viable spread plan" — XLK/TLT died that way every cycle from
+    2026-09-02 to 2026-11-17 before anyone grepped the log for the real
+    causes (XLK: OTM side quotes too wide on the indicative feed; TLT:
+    far-OTM long legs are pennies with huge relative spreads). The list is
+    diagnostic output only; it never changes what gets built.
     """
     limits = config.risk
     today = datetime.now().date()
@@ -263,6 +273,10 @@ async def build_spread(
     contracts = await _fetch_contracts(mcp, ticker, option_type, min_exp, max_exp)
     if not contracts:
         logger.info("No %s contracts for %s in [%s, %s]", option_type, ticker, min_exp, max_exp)
+        if failure_reasons is not None:
+            failure_reasons.append(
+                f"no {option_type} contracts in [{min_exp}, {max_exp}]"
+            )
         return None
 
     expirations = sorted({c["expiration_date"] for c in contracts if c.get("expiration_date")})
@@ -276,6 +290,7 @@ async def build_spread(
             held_short_symbols=held_short_symbols,
             closing_short_symbols=closing_short_symbols,
             closing_long_symbols=closing_long_symbols,
+            failure_reasons=failure_reasons,
         )
         if plan is None:
             continue
@@ -313,6 +328,7 @@ async def _build_for_expiration(
     held_short_symbols: frozenset[str] | set[str] = frozenset(),
     closing_short_symbols: frozenset[str] | set[str] = frozenset(),
     closing_long_symbols: frozenset[str] | set[str] = frozenset(),
+    failure_reasons: list[str] | None = None,
 ) -> SpreadPlan | None:
     """One expiration's worth of the original build: delta-target the short,
     snap the long, quote the shortlist, walk the liquid shorts. Unchanged
@@ -399,6 +415,12 @@ async def _build_for_expiration(
             ticker, chosen_expiration, len(exp_contracts),
             limits.min_open_interest, limits.max_bid_ask_spread_pct * 100,
         )
+        if failure_reasons is not None:
+            failure_reasons.append(
+                f"{chosen_expiration}: {len(exp_contracts)} strikes but none both "
+                f"OTM and liquid (min OI {limits.min_open_interest}, max bid-ask "
+                f"{limits.max_bid_ask_spread_pct * 100:.0f}%)"
+            )
         return None
 
     liquid_candidates.sort(key=lambda cd: abs(cd[1] - limits.short_leg_target_delta))
@@ -464,6 +486,11 @@ async def _build_for_expiration(
 
     if short_contract is None:
         logger.info("%s: no liquid short with a tradeable long leg this cycle, skipping", ticker)
+        if failure_reasons is not None:
+            failure_reasons.append(
+                f"{chosen_expiration}: {len(liquid_candidates)} liquid short(s) "
+                f"but no tradeable long leg (illiquid, held, or closing)"
+            )
         return None
 
     short_strike = float(short_contract["strike_price"])
@@ -475,6 +502,10 @@ async def _build_for_expiration(
 
     if credit_estimate <= 0:
         logger.info("%s spread has non-positive credit (%.2f), skipping", ticker, credit_estimate)
+        if failure_reasons is not None:
+            failure_reasons.append(
+                f"{chosen_expiration}: non-positive credit ({credit_estimate:.2f})"
+            )
         return None
 
     # Real bug caught 2026-08-27: credit_estimate > 0 alone doesn't rule out
@@ -489,6 +520,12 @@ async def _build_for_expiration(
             "-- almost certainly a stale/bad quote, skipping",
             ticker, max_loss, width_dollars, credit_estimate,
         )
+        if failure_reasons is not None:
+            failure_reasons.append(
+                f"{chosen_expiration}: non-positive max_loss "
+                f"({max_loss:.2f} = width {width_dollars:.2f} - credit "
+                f"{credit_estimate:.2f}; stale/crossed quotes)"
+            )
         return None
 
     return SpreadPlan(
