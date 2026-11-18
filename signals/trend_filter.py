@@ -59,6 +59,17 @@ class TrendFilter:
         the unconditional block (live behavior). Added 2026-09-01 as a lab
         hypothesis: on 2026-09-01 the filter emptied the whole menu while
         itself reporting "weak trend" (ADX 11.8–16.5) on every blocked ticker.
+    require_price_alignment : bool
+        If True, additionally require the CURRENT price to sit on the signal's
+        side of the fast EMA: longs need close > EMA{ema_fast}, shorts need
+        close < EMA{ema_fast}. The EMA50/EMA200 cross answers "what is the
+        multi-month trend?", which is slower than the 7–14 DTE life of the
+        verticals this bot sells; a long-term-bullish ticker whose price is
+        currently falling through its EMA50 passes the crossover test while
+        the short-dated bull put it spawns fights the live tape. Added
+        2026-11-18 as a lab hypothesis after the menu book resolved 29
+        bull_puts at 2 wins / −$1,250 in a falling tape the crossover still
+        called bullish. Default False preserves live behavior.
     """
 
     def __init__(
@@ -67,11 +78,13 @@ class TrendFilter:
         ema_slow: int = 200,
         adx_threshold: float = 25.0,
         block_only_strong_trend: bool = False,
+        require_price_alignment: bool = False,
     ):
         self.ema_fast = ema_fast
         self.ema_slow = ema_slow
         self.adx_threshold = adx_threshold
         self.block_only_strong_trend = block_only_strong_trend
+        self.require_price_alignment = require_price_alignment
 
     def check(
         self,
@@ -160,6 +173,19 @@ class TrendFilter:
             else:
                 allowed = False
                 reasoning.append("BLOCKED: Long against bearish trend")
+
+        if allowed and self.require_price_alignment:
+            misaligned = (direction == "long" and last_close < last_ema_fast) or (
+                direction == "short" and last_close > last_ema_fast
+            )
+            if misaligned:
+                allowed = False
+                side = "below" if last_close < last_ema_fast else "above"
+                reasoning.append(
+                    f"BLOCKED: price {side} EMA{self.ema_fast} "
+                    f"({last_close:.2f} vs {last_ema_fast:.2f}) against "
+                    f"{direction} signal"
+                )
 
         return TrendFilterResult(
             allowed=allowed,

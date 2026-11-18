@@ -100,6 +100,7 @@ def load_bars(symbols: list[str]) -> dict[str, pd.DataFrame]:
 def find_events(
     data: dict[str, pd.DataFrame], *, use_trend: bool, use_vol: bool,
     adx_gated_trend: bool = False, range_mean_revert: bool = False,
+    price_aligned_trend: bool = False,
 ) -> list[tuple]:
     """backtest_optimize.main's event loop, with the filters made toggleable.
 
@@ -109,9 +110,15 @@ def find_events(
 
     range_mean_revert=True tests the 2026-10-15 hypothesis: in weak-trend
     regimes, RSI/MACD z-score extremes predict reversion, not continuation
-    (same flag generate_swing_signals carries dark, so a win transfers)."""
+    (same flag generate_swing_signals carries dark, so a win transfers).
+
+    price_aligned_trend=True tests the 2026-11-18 hypothesis: beyond the
+    EMA50/200 crossover, require current price on the signal's side of
+    EMA50 — the crossover is slower than the 7–14 DTE verticals it gates
+    (same TrendFilter flag live uses, so a win transfers)."""
     adaptive = AdaptiveIndicators()
-    trend_filter = TrendFilter(block_only_strong_trend=adx_gated_trend)
+    trend_filter = TrendFilter(block_only_strong_trend=adx_gated_trend,
+                               require_price_alignment=price_aligned_trend)
     events = []
     for symbol, df in data.items():
         cooldown_until = -1
@@ -304,6 +311,22 @@ def main() -> None:
         # L3 +$1,289/79.3%/−$691 on identical events. Stays dark; re-judge
         # only after a bars refresh covering the Sep-Oct ranging regime.
         ("L3c range-MR osc + vol", dict(use_trend=True, use_vol=True, range_mean_revert=True)),
+        # Price-aligned trend variants (2026-11-18): also require current
+        # close on the signal's side of EMA50 (longs above, shorts below) —
+        # the EMA50/200 crossover is slower than the 7–14 DTE verticals it
+        # gates. Live motivation: menu book 11-12→11-18 resolved bull_puts
+        # 2W/27L (−$1,250) on tickers the crossover still called bullish
+        # while price sat below the 50-day. Compare L2e vs L2, L3e vs L3.
+        # CAVEAT: bars cache ends 2026-08-29 — this window does NOT contain
+        # the Sep–Nov falling regime that motivated the test; here it only
+        # answers "does alignment hurt in the regimes we do have?".
+        # VERDICT (first run 2026-11-18, cached Aug-29 window): REJECTED for
+        # unconditional live use — L3e +$161/74.5% win/maxDD −$1,099 vs L3
+        # +$1,289/79.3%/−$691: in this mostly-rising window, below-EMA50
+        # longs are profitable dip-buys and alignment amputates them. Stays
+        # dark; re-judge after a bars refresh that includes Sep–Nov 2026.
+        ("L2e price-aligned trend", dict(use_trend=True, use_vol=False, price_aligned_trend=True)),
+        ("L3e price-aligned + vol", dict(use_trend=True, use_vol=True, price_aligned_trend=True)),
     ]
     l3_events = None
     for name, toggles in ladder:

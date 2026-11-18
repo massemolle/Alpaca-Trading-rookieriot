@@ -2,6 +2,81 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-18 evening (reviewing trading day 2026-11-18 — judge healthy and
+confirmed selective in a quiet tape; the night's theme is a LAB REJECTION:
+the price-vs-EMA50 alignment gate that would have saved the menu's bull_put
+bleed is regime-dependent and stays dark.)
+
+**The day.** Quiet, slightly risk-off tape (SPY −0.28%, XLE −3.23%, GLD
+−3.19%; volumes mostly below 20d). 13 market cycles: 2 opens (both GLD
+bear calls, cycles 997/1002 — signal strength 0.37–0.38 standing out on
+otherwise sub-0.25 slates), 11 abstentions, all citing the conviction bar
+and stacking discipline correctly. Credit sleeve: +$17 realized (GLD
+372/377 hit its profit target after 2 days), −$7 unrealized across 4 open
+bear calls. The account's +$2,534 day was the killswitch sleeve's +$2,513
+intraday mark — not us (checked sleeve_attribution per the shared-account
+rule).
+
+**analyze-regret.** Ablation (recent_7d, regime-fair window): llm_real
+−$4.0/closed vs shadow −$20.35 vs random −$32.25 → LLM ≥ rule ≥ random,
+judge is currently the *strong* link; lifetime inversion (llm −27.87 vs
+shadow −18.25) remains era-biased pre-D28 history. Menu regret headline
+numbers look damning (57 of 93 drops positive, +$1,035.5 forgone) but the
+drop set NETS −$345.4 — and splitting resolved menu rows by direction
+explains everything: **bear_call 46W/0L +$929.5; bull_put 2W/27L
+−$1,249.9.** The judge dropped essentially every bull_put (its citations:
+weak signal, stacking, counter-tape) — all class (a), reasoning sound. No
+selector change warranted; the pattern is upstream: the pipeline keeps
+building bull puts in a falling tape.
+
+**Why the pipeline builds them.** `TrendFilter` blocks counter-trend
+entries off the EMA50/EMA200 crossover — a multi-month read. The bleeding
+bull_puts came from tickers still "bullish" by crossover while price fell
+through the 50-day (exactly the "price below SMA50" fact the judge kept
+citing). A 7–14 DTE vertical lives on the faster timeframe.
+
+**The experiment (run-lab-experiment).** Hypothesis: additionally require
+price on the signal's side of EMA50 (`require_price_alignment`, new opt-in
+flag on `TrendFilter`, dark by default; lab toggles L2e/L3e). Result on
+the cached Apr-2025→Aug-2026 window, same seeds/window as baselines:
+
+| config | n | total | win | maxDD |
+|---|---|---|---|---|
+| L2 trend (baseline) | 144 | −$1,069 | 70.8% | −$1,866 |
+| L2e price-aligned | 132 | −$1,156 | 68.2% | −$1,829 |
+| L3 trend+vol (baseline) | 116 | **+$1,289** | 79.3% | −$691 |
+| L3e price-aligned+vol | 106 | +$161 | 74.5% | −$1,099 |
+
+**Decision: REJECTED for live use.** In the cached (mostly rising) window,
+below-EMA50 longs are profitable dip-buys; the gate amputates them and
+guts L3's edge while worsening drawdown. The gate only looks good in the
+current falling regime — which the bars cache (ends 2026-08-29) does not
+contain, so the lab cannot yet adjudicate the motivating case. The flag
+stays dark like L2b/L3c; verdict recorded in the ladder comment. Honesty
+caveats: BS/realized-vol proxy economics, relative comparisons only; menu
+outcomes are marks, not fills, and the menu book is not risk-matched.
+
+**Changes made.** `signals/trend_filter.py`: opt-in
+`require_price_alignment` (default False — live behavior byte-identical);
+`backtest_lab.py`: `price_aligned_trend` toggle + L2e/L3e ladder entries
+with verdict; new `tests/test_trend_filter_price_alignment.py` (5 tests,
+fixture-premise guards included). Suite 327 → 332 green. Live trading
+behavior unchanged tonight — the judge is already doing the filtering the
+gate would do, at zero cost in the rising-regime case.
+
+**Watch tomorrow.** (1) The two GLD bear calls (opened into a −3.2% GLD
+day — right side so far) plus SPY/IWM/TLT opens riding their stops. (2)
+Whether menu bull_puts keep stopping — each one now is pure evidence
+accrual for re-judging L2e/L3e after a bars refresh.
+
+**Proposals (not allowed to touch / can't do from here).** (1) **Bars
+refresh** for `state/bars/` covering Sep–Nov 2026 — needs Alpaca creds +
+network the nightly env doesn't have; it unblocks re-judging both L3c
+(explicitly deferred to a refresh) and tonight's L3e on the regime that
+motivated them. (2) Standing items: OAuth pre-flight (11-16), XLK universe
+question (11-17 journaled reasons now accruing), the 5 expiry-unbooked
+llm_real rows (≤$349) still biasing lifetime ablation against the judge.
+
 ## 2026-11-17 evening (reviewing trading day 2026-11-17 — D28's prediction
 confirmed on its first full day; the judge is behaving; the account's red
 day was the killswitch sleeve, not us. Small theme: the journal finally
