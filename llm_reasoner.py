@@ -90,6 +90,25 @@ $355 max loss [SPY_MAX_LOSS]". Never introduce numbers that have no fact id — 
 figure you want isn't in the facts, reason without it. Note the quality field: \
 `indicative_delayed` means the quote may be stale/modified (free feed).
 
+Forming `p_win`: anchor it on the spread's STRUCTURE first, then adjust for \
+the signal — not the other way around. Every candidate's short strike was \
+placed out of the money by the screening layer, and credit-to-width tells you \
+how far: a thin credit means the underlying must travel further against the \
+position before the stop is even threatened. `strength` is the screening \
+layer's conviction in the DIRECTIONAL signal on a 0-1 scale — it is not a win \
+probability, and a modest strength on a far-OTM, direction-aligned spread \
+lowers your edge without inverting the odds. Do not translate "strength below \
+~0.5" into "p_win below break-even"; that reads a conviction score as a \
+probability it never was. Weigh mean-reversion warnings (oversold RSI, a \
+lower-Bollinger pin) against the distance a counter-move would have to travel \
+to threaten the short strike within the spread's few days to expiry — they \
+are a p_win haircut, not an automatic veto. What DOES pull p_win toward or \
+below break-even: a signal pointing against the spread's direction, a fat \
+credit placing the short strike near the money, realized vol large relative \
+to the short strike's distance, or internally contradictory screening reads. \
+Abstain on those, and on stacking a thesis the book already holds — not on \
+thin conviction alone when structure and direction agree.
+
 For EVERY ticker you select you must also state `p_win`: your probability \
 (0-1) that this spread reaches its profit target before its stop. Selecting \
 with p_win below 0.55 contradicts your own belief and will be rejected.

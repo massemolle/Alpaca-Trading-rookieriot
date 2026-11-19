@@ -2,6 +2,87 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-19 evening (reviewing trading day 2026-11-19 — a −2% reversal day
+the sleeve navigated well; the theme is the judge's LAST calibration gap:
+it reads `strength` as a win probability, and the drop set just flipped to
+net-positive regret. Prompt tune, D28-style.)
+
+**The day.** Sharp risk-off reversal: big gaps UP that sold off hard (QQQ
+gapped +1.77%, ranged 4.67%, closed −2.19%; SPY −1.98%, IWM −2.2%, XLK
+−1.85%), volumes 1.3–1.8x the 20d. 13 judged cycles: 2 opens — GLD 356/361
+bear call c1012 ($46.5 credit) and IWM 278/283 bear call c1014 ($41) — and
+11 abstentions. Three profit-target closes, all 11-17 watch items: SPY
+757/762 +$26, IWM 280/285 +$23, IWM 281/286 +$15 → credit sleeve realized
++$64, open book −$10 unrealized. Account +$1,068 was mostly the killswitch
+sleeve again (+$1,089 realized; checked `sleeve_attribution` per the
+shared-account rule).
+
+**analyze-regret.** Ablation (recent_7d, regime-fair): llm_real **+$8.67**/
+closed (n=6) vs shadow −$16.05 (n=269) vs random −$11.81 (n=8) → the judge
+remains the strong link, now positive outright. But the regret table moved
+in a way yesterday's didn't: 92 drops now net **+$352** (yesterday the drop
+set netted −$345), with 66 positive worth +$1,378. Split by direction, the
+resolved drops are **bear_call ~57W/0L +$1,210.5 vs bull_put 1W/20L** —
+dropping the bull_puts remains sound (class a, same as 11-18), but the
+direction-aligned bear_call drops are now 0-for-losses across TWO
+consecutive days (46/0 on 11-18, 57/0 today, marks caveat). Reading the
+cited reasoning for those cycles, the same fact misuse recurs — class (b):
+- c996: "0.352 is still only a modest screening signal and I do not have
+  conviction it reaches the ~67% win rate" [GLD_SIGNAL_STRENGTH].
+- c1001: "the slate is uniformly weak against the ~67% break-even win rate
+  this exit discipline demands" (GLD 0.377, trending, dropped → won).
+- c1011: "strength 0.407 [GLD_SIGNAL_STRENGTH] ... pulls my honest p_win to
+  roughly the break-even line rather than clearly above it" → won.
+- Same construction in c993/994/995 and in today's 17:00–20:30 abstentions
+  ("strengths 0.433–0.488 ... none clears the ~67% bar").
+The judge translates `strength` (a 0–1 screening *conviction* score)
+directly into p_win, so any sub-0.5-strength slate reads as sub-break-even
+— even when the structure (thin credit ⇒ far-OTM short strike) is exactly
+what it itself cited when it DID take c1012 ("the short strike sits
+comfortably OTM, which structurally favors capturing the 50% profit
+target"). D28 fixed the exit arithmetic; this is the remaining anchor
+error, and it's prompt-owned (`tune-reasoner-prompt`), not pipeline.
+
+**Change.** `llm_reasoner.py` SYSTEM_PROMPT: new "Forming `p_win`"
+paragraph — anchor p_win on structure (credit-to-width ⇒ strike distance)
+first, adjust for the signal; `strength` is explicitly "not a win
+probability"; oversold/lower-Bollinger mean-reversion reads become a p_win
+*haircut* weighed against the distance a counter-move must travel within
+DTE, not an automatic veto; and the legitimate abstention reasons are
+enumerated so this does NOT become action bias (signal against the spread's
+direction, fat near-money credit, vol large vs strike distance,
+contradictory screening reads, stacking). Schema, citation rules, and the
+p_win≥0.55 contract untouched. New `tests/test_reasoner_pwin_anchoring.py`
+(5 tests) pins the guidance; suite 332 → 337 green. Honesty caveats: menu
+outcomes are marks on a non-risk-matched book, and this regime has been
+one-way — which is exactly why the tune is calibration-neutral language,
+not "sell more calls".
+
+**Falsifiable prediction (verdict it tomorrow, D28-style).** (1) No judged
+abstention tomorrow whose only quantitative case is `strength` vs the ~67%
+bar — structural language (strike distance / credit-to-width) must appear
+in p_win formation, in takes AND abstentions. (2) The daily count of
+dropped direction-aligned candidates that resolve profitable falls versus
+today's; equivalently the take rate rises modestly from 2/13 when
+direction-aligned far-OTM candidates are on the slate with a clean book.
+Failure mode to watch: if tomorrow's journal shows takes on signals
+pointing AGAINST the spread or near-money fat credits, the tune overshot —
+revert it.
+
+**Watch tomorrow.** (1) GLD 356/361 c1012 sat status='pending' at snapshot
+time — confirm the reconciler resolved the fill (or voided it) at the next
+open. (2) Two fresh bear calls (GLD c1012, IWM c1014) opened into a −2%
+day ride their stops if the tape bounces; TLT 80/85 open mark −$25.5 is
+the closest to trouble. (3) D28 soak continues — exit-arithmetic framing
+held for a third day today; keep confirming alongside the new paragraph.
+
+**Proposals (not mine to touch).** Unchanged from 11-18, still open:
+(a) refresh `state/bars/` past 2026-08-29 (needs Alpaca creds) — unblocks
+re-judging L3e/L3c in the falling regime; (b) the 5 expiry-unbooked
+llm_real rows (≤$349) still bias lifetime ablation against the judge;
+(c) XLK universe decision now that builder failure reasons are journaled;
+(d) OAuth pre-flight guard.
+
 ## 2026-11-18 evening (reviewing trading day 2026-11-18 — judge healthy and
 confirmed selective in a quiet tape; the night's theme is a LAB REJECTION:
 the price-vs-EMA50 alignment gate that would have saved the menu's bull_put
