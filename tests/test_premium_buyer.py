@@ -169,6 +169,53 @@ def test_rhetoric_ratio_rescue_leaves_positional_pairs_strict():
     assert len(flags) == 1 and "misquotes [IWM_CREDIT_EST]" in flags[0]
 
 
+# Percent-unit citations (c1028 2026-11-20 false block): a %-marked lone
+# number may quote a fraction-stored fact on the percent scale — the judge's
+# natural rendering of realized vol — not a misquote. Unmarked numbers and
+# positional pairs stay strict.
+
+def _spy_vol_cands():
+    return [{"ticker": "SPY", "facts": [
+        {"fact_id": "SPY_REALIZED_VOL", "value": 0.2349},
+        {"fact_id": "SPY_DTE", "value": 10},
+    ]}]
+
+
+def test_rhetoric_percent_scale_of_fraction_fact_not_flagged():
+    # Verbatim c1028 fragment that produced the false block (0.2349 → ~23.5%).
+    text = "realized vol is the lowest of the three at ~23.5% [SPY_REALIZED_VOL]"
+    assert rhetoric.audit_values(_spy_vol_cands(), text) == []
+
+
+def test_rhetoric_percent_scale_applies_to_multi_tag_lone_numbers_too():
+    text = "vol near 23.5% [SPY_REALIZED_VOL, SPY_DTE] over the window"
+    assert rhetoric.audit_values(_spy_vol_cands(), text) == []
+
+
+def test_rhetoric_unmarked_number_stays_strict():
+    # Without the % the unit claim is absent — the strict path still flags.
+    flags = rhetoric.audit_values(
+        _spy_vol_cands(), "realized vol of 23.5 [SPY_REALIZED_VOL] this cycle")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_percent_marked_true_misquote_still_flags():
+    # 40% matches neither 0.2349 nor 23.49 — a real misquote keeps flagging.
+    flags = rhetoric.audit_values(
+        _spy_vol_cands(), "realized vol around 40% [SPY_REALIZED_VOL]")
+    assert flags and "misquotes" in flags[0]
+
+
+def test_rhetoric_percent_rescue_leaves_positional_pairs_strict():
+    # A %-marked slash pair keeps strict positional pairing — no 100x rescue.
+    cands = [{"ticker": "SPY", "facts": [
+        {"fact_id": "SPY_A", "value": 0.5},
+        {"fact_id": "SPY_B", "value": 0.3},
+    ]}]
+    flags = rhetoric.audit_values(cands, "split 50/30% [SPY_A][SPY_B] here")
+    assert len(flags) == 2 and all("misquotes" in f for f in flags)
+
+
 def test_alignment_blocks_self_contradiction():
     flags = rhetoric.audit_alignment([{"ticker": "SPY", "p_move": 0.40}], min_p=0.55)
     assert flags and "contradicts belief" in flags[0]

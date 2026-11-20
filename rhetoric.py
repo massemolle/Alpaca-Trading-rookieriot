@@ -18,7 +18,7 @@ import re
 _NUM = r"-?\$?\d+(?:,\d{3})*(?:\.\d+)?"
 _TAG = r"[A-Z][A-Z0-9_]*"
 _CITE_GROUP = re.compile(
-    rf"({_NUM}(?:\s*/\s*{_NUM})*)\s*%?\s*"
+    rf"({_NUM}(?:\s*/\s*{_NUM})*)\s*(%?)\s*"
     rf"((?:\[{_TAG}(?:\s*,\s*{_TAG})*\])+)"
 )
 _TAG_RE = re.compile(_TAG)
@@ -59,7 +59,15 @@ def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05
     for m in _CITE_GROUP.finditer(reasoning):
         nums = [float(n.replace("$", "").replace(",", ""))
                 for n in re.split(r"\s*/\s*", m.group(1))]
-        tags = _TAG_RE.findall(m.group(2))
+        pct = m.group(2) == "%"
+        tags = _TAG_RE.findall(m.group(3))
+
+        def matches(quoted: float, actual: float) -> bool:
+            # A %-marked lone number may quote a fraction-stored fact on the
+            # percent scale ("~23.5% [SPY_REALIZED_VOL]" with fact 0.2349,
+            # c1028 2026-11-20: a correct unit conversion, not fabrication).
+            # Unmarked numbers stay strict.
+            return close(quoted, actual) or (pct and close(quoted, 100.0 * actual))
         known = {}
         for fid in tags:
             if fid not in facts:
@@ -71,7 +79,10 @@ def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05
                 pass  # non-numeric fact — nothing to compare
         if len(nums) == len(tags):
             for quoted, fid in zip(nums, tags):
-                if fid in known and not close(quoted, known[fid]):
+                if fid in known and not (
+                    matches(quoted, known[fid]) if len(nums) == 1
+                    else close(quoted, known[fid])
+                ):
                     # Lone pairs only: the positional pairing of multi-number
                     # groups (85.5/414.5 [A][B]) stays strict so a swapped
                     # pair still flags.
@@ -93,7 +104,7 @@ def audit_values(candidates: list[dict], reasoning: str, tolerance: float = 0.05
                 for j, b in enumerate(vals):
                     if i != j and abs(b) > 1e-9:
                         derived += [a / b, 100.0 * a / b]
-            if not any(close(nums[0], v) for v in vals + derived):
+            if not any(matches(nums[0], v) for v in vals + derived):
                 flags.append(
                     f"misquotes [{', '.join(tags)}]: says {nums[0]}, facts are "
                     + ", ".join(str(known[t]) for t in tags if t in known)

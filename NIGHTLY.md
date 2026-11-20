@@ -2,6 +2,96 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-20 evening (reviewing trading day 2026-11-20 — verdict day for the
+11-19 p_win tune: CONFIRMED on both predictions, on the hardest tape of the
+window (QQQ −5.48%, XLK −7.21%, SPY −3.51%). The defect is the rhetoric
+audit's FOURTH false-block subclass — a percent-unit conversion erased a
+winning SPY pick at c1028, the first infrastructure erasure with realized
+cost. Theme: `rhetoric.py` learns units.)
+
+**The day.** Broad risk-off: SPY −3.51%, QQQ −5.48%, XLK −7.21%, GLD −3.63%
+on a −2.43% gap, IWM −2.83%; TLT +1.36%; volumes 1.4–2.9x the 20d. 13 market
+cycles (3 early ones produced no candidates). Real book: 4 takes — SPY
+741/746 (c1027, profit target SAME DAY +$34), IWM 274/279 (c1029, open +),
+SPY 735/740 (c1030, open +), GLD 338/343 (c1031, pending fill at snapshot) —
+plus IWM 278/283 from 11-19 took profit +$25 and TLT 80/85 stopped −$63 as
+TLT rallied (11-19's "closest to trouble" watch item, resolved by the stop
+as designed). Credit sleeve −$4 realized, +$21 open marks; the account's
++$6,067 was the killswitch sleeve (+$5,029 realized, per the shared-account
+rule). 11-19 watch item (1) resolved: GLD c1012 went pending → rejected
+(expired unfilled), no position.
+
+**Verdict on the 11-19 falsifiable prediction: CONFIRMED, no overshoot.**
+(1) Zero abstentions whose only quantitative case is strength-vs-the-~67%
+bar. Every journal now forms p_win structurally — credit-to-width ⇒ strike
+distance, exits in credit multiples ("profit-take at 0.5x credit vs a stop
+near 1x", c1029) — in takes AND abstentions; `strength` appears as
+conviction input, never as p_win. Abstentions cite the enumerated legitimate
+reasons: the whole 17:00Z+ slate was re-buys of the three held underlyings
+(stacking), plus lower-Bollinger/oversold pins read as haircuts or honest
+contradictions. (2) Take rate rose to 4/11 judged (from 2/13), all
+direction-aligned far-OTM bear calls into the falling tape; the warned
+failure mode did not appear — no counter-direction takes, and the judge
+explicitly SKIPPED the fat near-money GLD credits (c1029: "fat $104 credit
+places the short strike near the money"; c1030 same). Two of the takes paid
+the same day. The tune stands; no prompt edit tonight. D28 exit framing
+held for a fourth day.
+
+**analyze-regret.** Ablation recent_7d (regime-fair): llm_real **+$5.33**/
+closed (n=9) vs shadow −$5.05 (n=237) vs random −$6.53 (n=13) → LLM ≥ rule
+≥ random, the healthy ordering, judge the strong link. Regret: today's
+marked drops net +$116 across 14 rows, small and mixed signs — class (a)
+throughout (every afternoon drop was a stacking-disciplined re-buy refusal).
+The single class (c): **c1028, the audit false block.** At 15:01Z the judge
+SELECTED SPY 747/752; the journal records "[RHETORIC AUDIT BLOCKED:
+misquotes [SPY_REALIZED_VOL]: says 23.5, fact is 0.2349]" and the decision
+became abstained. "~23.5% [SPY_REALIZED_VOL]" is a CORRECT percent rendering
+of the fraction-stored fact (the citation regex even consumes the "%" and
+throws it away). That is the SIXTH judged pick erased by infrastructure and
+the FOURTH false-audit subclass (c449 mis-pairing, c552 clause tag, c601
+derived ratio, now percent units) — and the first with realized cost: the
+erased spread closed +$27 on the menu book within two hours. Per the 10-16
+standing note, a new false block in this class gets pattern credit
+immediately; the fix is `rhetoric.py`, not the prompt.
+
+**Change.** `rhetoric.py`: the citation-group regex now CAPTURES the
+optional "%" marker; a %-marked LONE number is additionally checked against
+100× the cited fact — in both the single-tag branch and the
+lone-number-vs-multi-tag branch (whose pairwise ratios already had 100·a/b
+from 10-16). Strictness pinned everywhere else: an UNMARKED number against a
+fraction fact still flags, a %-marked true misquote (40% vs 0.2349) still
+flags, and %-marked positional slash pairs get no 100× rescue. 5 new tests
+in `tests/test_premium_buyer.py` including the verbatim c1028 fragment as a
+regression; suite 337 → 342 green. Same precedent as 10-05/10-13/10-16:
+narrows what the audit can false-block, leaves every true-misquote path
+intact, touches no risk limit, benefits all three sleeves sharing the module.
+
+**Second finding (observation + proposal, no code).** The judge has picked
+GLD four times in three days (c997, c1002, c1012, c1031) and the sleeve has
+ZERO GLD fills: every entry order rested at the judged-credit limit and
+expired at day end through the designed pending → rejected path (ids
+100/101/102 rejected; 107 pending at snapshot, likely next). The slippage
+budget is working as documented — but the menu book records those GLD
+entries at mid, so GLD regret rows price fills the live path demonstrably
+cannot get; discount GLD menu evidence accordingly. If the team wants GLD
+tradeable, the fix is executor-side (e.g., one repriced retry still inside
+the documented slippage budget) — executor order paths are not mine to
+touch, so proposal only.
+
+**Watch tomorrow.** (1) GLD 338/343 (id 107) pending resolution — expect
+expired → rejected; a fill would be the first GLD fill in four attempts.
+(2) The two open bear calls (SPY 735/740, IWM 274/279) into any
+post-washout bounce — the oversold pin was the judge's own cited risk;
+stops are the mechanism. (3) Any new RHETORIC AUDIT block should (fourth
+time making this promise) mean a real misquote — read it verbatim. (4)
+p_win tune day 2: same two prediction checks, same revert trigger.
+
+**Proposals (standing, team's call).** Bars refresh past 2026-08-29
+(unblocks re-judging L3e/L3c in this regime — tonight's tape is exactly the
+missing data); the 5 expiry-unbooked llm_real rows; the XLK universe
+decision (today XLK fell 7.21% and the builder still couldn't make a
+candidate); OAuth pre-flight; NEW: the GLD executor retry above.
+
 ## 2026-11-19 evening (reviewing trading day 2026-11-19 — a −2% reversal day
 the sleeve navigated well; the theme is the judge's LAST calibration gap:
 it reads `strength` as a win probability, and the drop set just flipped to
