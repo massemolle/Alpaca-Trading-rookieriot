@@ -2,6 +2,83 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-23 evening (reviewing trading day 2026-11-23 — the bounce arrived
+and the system passed its cleanest natural experiment yet: zero judged
+cycles (account drawdown halt all day), two designed stops totaling −$150,
+and every bearish candidate the judge refused on 11-20 stopped out virtually
+for ≈−$1,650 of avoided losses while the rule arm bled −$4,550 in one
+session. No code change tonight — nothing in this repo failed.)
+
+**The day.** The post-washout rally the judge itself named as the risk on
+Friday: SPY +4.62% (gap +4.87%), QQQ +6.79%, XLK +8.91%, IWM +3.52%, GLD
++3.13%, volumes 1.1–1.8x the 20d. Every market-hours cycle (1044–1056)
+skipped on the 5-day drawdown halt — equity 107.6–108.1k vs the 112,189
+peak set 11-20, 3.6–4.1% below the 3% line. The sleeve's only actions were
+exits at the 14:30Z open cycle: SPY 735/740 stopped −$124 (gap through the
+stop, ~2x credit — the documented gap cost) and IWM 274/279 stopped −$26.
+Credit sleeve day: −$150 realized, zero open spreads at the bell — the book
+is flat for the first time since 11-16. Watch item (1) resolved as
+predicted: GLD 338/343 (id 107) expired → rejected, the FOURTH consecutive
+GLD pick with no fill; the executor-retry proposal now has a complete
+exhibit. `sleeve_attribution` pins the account's −$4,571 day: killswitch
+−$4,247 intraday on its three option positions (its IWM/QQQ puts bleeding
+on the bounce), credit −$150 and premium_buyer −$191.5 realized — the
+partition is clean.
+
+**analyze-regret.** Step 2, ablation recent_7d (regime-fair, now including
+today's two stops): llm_real **−$9.27**/closed (n=11) vs shadow −$21.26
+(n=210) vs random −$32.75 (n=16) → LLM ≥ rule ≥ random, healthy ordering,
+judge the strong link. Step 3, regret: no new decisions to classify (zero
+judged cycles), but the 11-20 drop set RESOLVED today and the verdict is
+total: all 11 dropped rows from cycles 1029–1039 — the afternoon
+abstentions citing "oversold pin / bounce risk / stacking" — closed_stop
+on the bounce, −$45 to −$257 each, ≈−$1,650 the judge did not take. Class
+(a) across the board, and not even "lucky": the cited mechanism (RSI 14–23,
+lower-Bollinger pin, counter-move within DTE) is exactly what happened.
+The same bounce stopped the shadow book 28 times for −$4,549.55 today —
+the mechanical rule sold the falling week indiscriminately and paid for
+all of it at the open. No (b)/(c), no pattern, no selector or pipeline
+fix warranted. The p_win tune's soak is paused, not verdicted — there were
+no judged cycles to test it on; prediction checks resume with the next
+judged slate.
+
+**Guard verification.** All 31 virtual closes today stamped 14:30Z — the
+first open-market cycle after the weekend gap. The 10-21 session-hours
+guard deferred every weekend/gap mark to a tradeable session, exactly as
+designed; zero after-hours prints.
+
+**No change tonight, deliberately.** Every mechanism in scope behaved
+correctly: the stops took small losses on a 4.6–6.8% adverse gap, the
+judge's Friday abstentions were the single best set of decisions in the
+regret table's history, the ablation ordering is healthy, and the halt —
+whatever one thinks of its scoping — is not mine to loosen. A change
+tonight would be change for its own sake on a day that produced zero
+judged decisions to learn from.
+
+**Watch tomorrow.** (1) The halt: equity must come within 3% of the
+rolling 5-day peak to resume; 112,189 (set 11-20) stays in the window
+until ~11-27, so either equity recovers ~$1.2k+ or the sleeve stays
+benched most of the week while flat and in good standing — proposal (o)'s
+cost is now accruing daily. (2) First post-halt judged slate: the book is
+EMPTY, so stacking discipline won't apply — careful read of how the judge
+forms p_win on a fresh slate in a bounced, high-RV tape (SPY RV20 31%,
+QQQ 47%); the p_win tune's two prediction checks resume there. (3) Any
+RHETORIC AUDIT block should mean a real misquote — standing promise,
+unexercised since the 11-20 fix. (4) Shadow book's −$4,550 day sits inside
+recent_7d for a week — remember it's the rule arm's own bleeding, not a
+window artifact, when reading ablation.
+
+**Proposals (team's call).** (o) sleeve-scoped halts gets its strongest
+exhibit yet: the credit sleeve held ZERO positions from 14:30Z yet was
+benched all 13 cycles by another sleeve's puts bleeding on a bounce — and
+the 112,189 peak the halt measures from was itself set by killswitch marks
+(11-20's +$5k killswitch day). The coupling now sets both ends of the
+drawdown fraction. Still a loosening by construction, still team-only.
+Standing: GLD executor-side repriced retry (now 4-for-4 unfilled), bars
+refresh past 2026-08-29 (this bounce is exactly the missing regime for
+L3e/L3c), the 5 expiry-unbooked llm_real rows, XLK universe decision,
+OAuth pre-flight.
+
 ## 2026-11-20 evening (reviewing trading day 2026-11-20 — verdict day for the
 11-19 p_win tune: CONFIRMED on both predictions, on the hardest tape of the
 window (QQQ −5.48%, XLK −7.21%, SPY −3.51%). The defect is the rhetoric
