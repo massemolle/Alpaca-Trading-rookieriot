@@ -2,6 +2,94 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-24 evening (reviewing trading day 2026-11-24 — the sleeve traded a
+90-minute gap in the drawdown halt, the p_win tune passed its resumed
+prediction checks on a fresh-book slate, and the first 2-pick cycle since the
+tune exposed a bookkeeping defect: `record_cycle` sat inside the per-pick
+open loop, so one bot run wrote TWO cycle rows and left one journal-less.
+Theme: one run, one cycle row — and late-pick errors stop vanishing.)
+
+**The day.** Mixed tape: SPY −0.51% (gap −1.0%), QQQ −2.01%, XLK −3.29%,
+GLD −2.26%, IWM +0.55%; volumes ~1x the 20d. The drawdown halt (peak
+112,189, 3% line ≈ 108,823) held entries off all morning and from 18:00Z —
+but equity poked above the line for exactly the 16:00–17:30Z cycles, so the
+sleeve got three judged runs: c1064 took IWM 279/284 bear call ($20 fill),
+the 16:30Z run took SPY 753/758 ($21 fill) + GLD 350/355 (pending — see
+below), and c1067/c1068 abstained, correctly citing stacking on all three
+held underlyings. IWM stopped the same day −$18 at 18:30Z as IWM closed
+green (+0.55%) — loss ≈ 0.9x credit, the designed exit, no complaints.
+Credit sleeve: −$18 realized, −$1 open marks. `sleeve_attribution` pins the
+account's −$1,401 day on the killswitch sleeve (−$1,487 intraday on its
+IWM/QQQ puts + TLT call); the halt's on/off oscillation was again sampled
+from another book's marks — proposal (o)'s exhibit grows a new shape: the
+sleeve's ENTIRE trading day existed inside other sleeves' mark noise.
+
+**p_win tune soak — resumed and held.** First judged slates since 11-20,
+and on the exact case flagged to watch (fresh book, bounced high-RV tape):
+c1064 formed p_win structurally ("thin $17.5 credit... short strike far
+OTM... p_win ~0.66"), took the aligned far-OTM spread, skipped GLD on the
+fat-credit + oversold-counter-signal profile, skipped SPY at 0.29 strength
+— strength used as conviction input, never as p_win. The 16:30Z run took
+SPY once the book was clean of SPY and held GLD's p_win at 0.59 citing the
+dominant trend vs the bounce risk. Both abstentions enumerate legitimate
+reasons (stacking, fat near-money credit, counter-signal). Zero rhetoric
+audit blocks. No prompt edit warranted.
+
+**analyze-regret.** Step 2, ablation recent_7d (regime-fair): llm_real
+**−$10.00**/closed (n=12) vs shadow −$19.68 (n=173) vs random −$31.85
+(n=17) → LLM ≥ rule ≥ random, healthy ordering, judge the strong link
+(remember the shadow window still carries its −$4,550 11-23 bleed — its
+own trading, not an artifact). Step 3, regret: today's drops are all
+noise-grade marks — SPY +$2/+$9 and GLD +$4 open (and the judge took both
+underlyings 30 minutes later anyway); the one resolved drop, c1067's IWM
+re-buy refusal, stopped out virtually −$20.5 — the abstention AVOIDED a
+loss. All class (a), no pattern, no selector or pipeline fix.
+
+**The finding — one run, two cycle rows.** The 16:30Z run was ONE bot
+invocation: SPY order 16:31:17 (filled), GLD order 16:31:20 (accepted,
+pending) — but `db.record_cycle` sat INSIDE the per-pick open loop in
+`bot.py`, so each executed pick wrote its own cycles row (1065 and 1066,
+47s apart, identical reasoning). Every downstream artifact — decision
+journal, menu book, shadow book, credit forecasts — attached to the LAST
+id, leaving 1065 a journal-less phantom: analyze-regret's "pull the
+journal for that cycle_id" dead-ends on it, judged-cycle counts inflate by
+one per extra pick, and the dashboard shows duplicate decisions. The
+companion defect was worse: once the first successful open created the
+row, the post-loop recorder (`if cycle_id is None`) never ran — so a
+failure on a LATER pick set `error_text` and then dropped it on the floor.
+Tonight it was benign (both orders placed, idempotency keys held, final
+book exactly as the judge intended); the first partial-failure multi-pick
+cycle would have been invisible. This never bit before because multi-pick
+cycles were rare pre-tune — the 11-19 tune raised the take rate, so it
+will recur.
+
+**Changes.** `bot.py`: the in-loop record_cycle call is now guarded
+(`if cycle_id is None`) — one cycle row per run, all spread rows reference
+it; the post-loop branch gains `elif error_text is not None:
+db.update_cycle_error(...)` so late-pick errors persist to the cycles
+table. `db.py`: new `update_cycle_error` (plain UPDATE, schema-qualified).
+New `tests/test_single_cycle_row.py` (5 tests: guard pin, single call
+site, error-persistence pin, UPDATE SQL + params, schema targeting).
+Suite 342 → 347 green. No order path, no risk limit, no prompt touched —
+execution behavior is byte-identical; only the accounting changed.
+Historic rows (1065 stands journal-less) are left alone — no retroactive
+DB surgery, same precedent as 10-21.
+
+**Watch tomorrow.** (1) GLD 350/355 (id 110) pending resolution — expect
+expired → rejected, which would make GLD 0-for-5 on fills and complete
+the executor-retry proposal's exhibit; a fill would be the first ever.
+(2) SPY 753/758 rides a 10-DTE bear call vs a tape that bounced then
+faded — stop is the mechanism. (3) The next multi-pick cycle should write
+ONE cycle row with its journal attached — that's the fix's live verdict.
+(4) The halt: peak 112,189 exits the 5-day window ~11-27; until then the
+sleeve trades only in mark-noise windows like today's.
+
+**Proposals (standing, team's call).** (o) sleeve-scoped halts — today's
+new exhibit: the sleeve's whole trading day was a 90-minute artifact of
+another sleeve's marks crossing the line; GLD executor-side repriced retry
+(likely 0-for-5 after tonight); bars refresh past 2026-08-29; the 5
+expiry-unbooked llm_real rows; XLK universe decision; OAuth pre-flight.
+
 ## 2026-11-23 evening (reviewing trading day 2026-11-23 — the bounce arrived
 and the system passed its cleanest natural experiment yet: zero judged
 cycles (account drawdown halt all day), two designed stops totaling −$150,

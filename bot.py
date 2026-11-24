@@ -911,7 +911,13 @@ async def run_cycle() -> None:
                     opened_unrecorded += 1
                     status = "open" if result.status in ("filled", "dry_run") else "pending"
                     credit = result.fill_credit if result.fill_credit is not None else plan.credit_estimate
-                    cycle_id = db.record_cycle(slim_candidates, "opened", reasoning)
+                    # One cycle row per bot run: unguarded, this re-ran for
+                    # every executed pick (2026-11-24 cycles 1065/1066 — a
+                    # 2-pick selection wrote two cycle rows, the journal and
+                    # menu rows attached only to the last, and the first
+                    # became a journal-less phantom in every per-cycle read).
+                    if cycle_id is None:
+                        cycle_id = db.record_cycle(slim_candidates, "opened", reasoning)
                     try:
                         db.record_spread_open(
                             underlying=plan.underlying,
@@ -1019,6 +1025,12 @@ async def run_cycle() -> None:
 
         if cycle_id is None:
             cycle_id = db.record_cycle(slim_candidates, decision, reasoning, error=error_text)
+        elif error_text is not None:
+            # The cycle row was created by an earlier successful open, so a
+            # later pick's failure would otherwise never reach the cycles
+            # table (the row would read "opened", error null, and only
+            # bot.log would know).
+            db.update_cycle_error(cycle_id, error_text)
 
         # Attach counterfactual gate results into pre_trade_rejections journal.
         if counterfactual_gate:

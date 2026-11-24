@@ -71,6 +71,17 @@ def record_cycle(
         return row[0]
 
 
+def update_cycle_error(cycle_id: int, error: str) -> None:
+    """Attach an error to an already-written cycle row. A multi-pick cycle
+    creates its row on the first successful open; if a later pick then
+    fails, the failure has no row of its own to carry it."""
+    with _connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"update {_schema()}.cycles set error = %s where id = %s",
+            (error, cycle_id),
+        )
+
+
 def record_spread_open(
     underlying: str,
     direction: str,
