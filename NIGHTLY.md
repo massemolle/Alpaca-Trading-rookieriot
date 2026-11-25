@@ -2,6 +2,94 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-25 evening (reviewing trading day 2026-11-25 — the mirror of 11-19:
+huge gaps DOWN (SPY −2.19%, QQQ −3.3%, XLK −3.93%, GLD −2.29%) that rallied
+back all session; both fills were bear calls stopped within hours as the
+bounce ran, and the judge argued trade direction from yesterday's daily bars
+with no fact carrying today's tape. Theme: give the judge the live tape —
+{TKR}_DAY_MOVE_PCT / {TKR}_FROM_OPEN_PCT.)
+
+**The day.** 16 cycles: 3 opens, 6 abstentions, 1 pretrade-gate block, the
+rest closed-market/no-candidate skips. The fills: GLD 332/337 bear call
+c1079 (14:31Z, one minute after the open; $97 fill credit) stopped −$103 at
+19:30Z; IWM 274/279 bear call c1081 ($73) stopped −$73 at 18:30Z; IWM
+281/286 c1091 (20:31Z, $32) open −$7 at the snapshot. Sleeve realized
+−$176, and after five straight GLD no-fills the one GLD order that DID fill
+was the day's worst trade — the adverse-selection face of the fill problem
+(proposal below). The 15:00Z gate block (c1080, "credit shrank 20%") was
+the pretrade re-check correctly refusing a decaying quote; its virtual
+row also stopped (−$58.5 mark), so the gate saved real money. Account
+−$988 on the day; `sleeve_attribution` puts −$673 of intraday marks on the
+killswitch sleeve (checked per the shared-account rule). c1090's abstention
+was an LLM JSON parse failure (fail-safe worked, journaled honestly) — the
+only such failure in the whole bot.log; noise, not a theme.
+
+**analyze-regret.** Ablation (recent_7d, regime-fair): llm_real −$19.46/
+close (n=13) vs shadow −$23.62 (n=166) vs random −$33.38 (n=21) → ordering
+healthy, judge still the strong link; everything is negative because the
+whole pipeline is short premium in a 31–60% realized-vol tape. Regret:
+ZERO positive drops today — all 10 dropped menu rows are negative (−$8.5
+to −$106.5, marks), so every abstention was loss-avoiding, class (a); the
+stacking-discipline abstentions at 16:00–18:00Z (c1082–1086) dodged
+~−$400 of marks. No selector pattern in the drop set. The pattern is on
+the TAKE side, and it's an information gap, class (c) — the facts
+misrepresent the candidate by omission: c1081 argued "the trend pushes
+price away from the short strike" while IWM, −1.49% at the open, was
+rallying to a +0.61% close; c1079 weighed GLD's oversold-bounce warning
+as a haircut with no fact showing the bounce had already begun; 11-24's
+IWM stop (id 108, −$18, green close) is the same shape. Three same-day
+stops across two consecutive days, all within hours, all with the judge
+asserting intraday direction it had no fact for. Checked and rejected the
+alternative reads: opening-cycle (14:3xZ) entries are historically fine
+(+$14 net over 6 fills), and D28's exit arithmetic verifies cleanly on
+the last 23 closes (wins +0.55x credit, stops −1.13x → break-even ≈ 0.67,
+exactly what the prompt teaches).
+
+**Change made (one theme).** The judge now sees the tape it was already
+reasoning about. `bot.py`: new `_day_context()` pulls previous-session
+close and (when IEX prints today's in-progress bar) today's open from the
+filter's existing bars fetch (no new API call); the filter's kept tuples
+carry it, and find_candidates publishes `{TKR}_DAY_MOVE_PCT` (spot vs
+prev close) and `{TKR}_FROM_OPEN_PCT` (spot vs today's open) — omitted,
+never zeroed, when bars don't support them. `llm_reasoner.py`
+SYSTEM_PROMPT: a glossary paragraph names both facts, states the
+screening signal is daily-bar blind to the session, instructs that an
+against-direction tape is the counter-move already in motion — a p_win
+haircut sized against remaining strike distance, NOT an automatic veto
+(the 11-19 tune's calibration stands) — and forbids any claim about
+today's price action without citing one of these facts. Schema, citation
+rules, p_win≥0.55 contract untouched. Tests: 3 stub-shape updates + new
+`tests/test_day_context_facts.py` (8 tests); suite 347 → 355 green.
+
+**Falsifiable prediction (verdict it tomorrow).** (1) Every journal entry
+that asserts intraday direction (bounce/fade/trending away) cites
+[*_DAY_MOVE_PCT] or [*_FROM_OPEN_PCT]; uncited tape claims should drop to
+zero. (2) On any day where the tape runs against a candidate's direction
+by ≥1% from the open, that candidate is either declined with the tape
+fact cited, or taken with the haircut explicitly weighed — no more
+"trend pushes price away" against a running bounce. Overshoot check: if
+abstention rate jumps on quiet days where DAY_MOVE_PCT is small and WITH
+the direction, the paragraph is reading as a veto — reword it.
+
+**Watch tomorrow.** (1) Whether IEX actually prints today's in-progress
+daily bar intraday — if FROM_OPEN_PCT never appears in journals, the
+fact is dead weight and DAY_MOVE_PCT carries the theme alone; check the
+first market cycle's facts. (2) IWM 281/286 (id 113, pending at snapshot)
+— sixth bear call into this bounce; its stop is the mechanism. (3) The
+11-24 record_cycle fix still awaits its live verdict (next multi-pick
+cycle: one cycle row, journal attached).
+
+**Proposals (not mine to touch).** (a) bars cache refresh past 2026-08-29
+(needs creds) — still blocks lab re-judging in this regime. (b) Executor
+fill handling: GLD is now 2 fills / 5 no-fills, and the fills were +$17
+and −$103 — the limit-at-judged-credit order fills preferentially when
+the market moves through it (adverse selection). A marketable repricing
+or cancel-after-N-minutes policy belongs to `executor_mcp.py`'s order
+path, which is off-limits to this session. (c) The 5 expiry-unbooked
+llm_real rows (≤$349) still bias lifetime ablation against the judge.
+(d) o/killswitch halt-coupling proposal unchanged (the 112,189 peak ages
+out of the 5-day window ~11-27).
+
 ## 2026-11-24 evening (reviewing trading day 2026-11-24 — the sleeve traded a
 90-minute gap in the drawdown halt, the p_win tune passed its resumed
 prediction checks on a fresh-book slate, and the first 2-pick cycle since the

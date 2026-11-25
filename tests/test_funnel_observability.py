@@ -155,9 +155,12 @@ def test_aligned_signal_with_elevated_vol_survives():
     )
     assert rejections == []
     assert len(kept) == 1
-    sig, realized_vol = kept[0]
+    sig, realized_vol, day_ctx = kept[0]
     assert sig.ticker == "SPY"
     assert realized_vol > 0
+    # FakeBarsClient bars carry no timestamp/open columns — the day context
+    # must degrade to Nones (facts omitted), never block the candidate.
+    assert day_ctx == {"prev_close": None, "today_open": None}
 
 
 def test_volume_floor_uses_prev_session_at_the_open():

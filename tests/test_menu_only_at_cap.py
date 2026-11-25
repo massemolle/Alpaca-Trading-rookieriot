@@ -58,7 +58,8 @@ def _run_find_candidates(monkeypatch, *, open_count: int, capacity_waived: bool,
     )
     monkeypatch.setattr(
         bot, "_apply_trend_and_volatility_filters",
-        lambda client, signals: ([(s, 0.15) for s in signals], []),
+        lambda client, signals: (
+            [(s, 0.15, {"prev_close": None, "today_open": None}) for s in signals], []),
     )
     monkeypatch.setattr(
         bot.protections, "check_underlying",

@@ -90,6 +90,21 @@ $355 max loss [SPY_MAX_LOSS]". Never introduce numbers that have no fact id — 
 figure you want isn't in the facts, reason without it. Note the quality field: \
 `indicative_delayed` means the quote may be stale/modified (free feed).
 
+The live tape: `{TICKER}_DAY_MOVE_PCT` is spot versus the previous session's \
+close (%), and `{TICKER}_FROM_OPEN_PCT` is spot versus today's open (%, present \
+only once today's bar prints on the feed). The screening signal (`strength`, the \
+MACD/SMA reads in `signal_reasoning`) is computed from DAILY bars and cannot see \
+today's session. When the tape runs AGAINST the spread's direction — the \
+underlying rising intraday under a bear_call, falling under a bull_put — the \
+counter-move you are weighing is not hypothetical: it is already in motion \
+today. Treat that like the other mean-reversion warnings, a p_win haircut sized \
+against the distance still to travel to the short strike within the DTE — not an \
+automatic veto; a tape running WITH the direction is mild confirmation, not a \
+reason to skip the other checks. Make no claim about what price is doing today \
+(bouncing, trending away from the strike, fading) without citing one of these \
+facts; when they are absent, you do not know today's direction — reason without \
+it rather than asserting it.
+
 Forming `p_win`: anchor it on the spread's STRUCTURE first, then adjust for \
 the signal — not the other way around. Every candidate's short strike was \
 placed out of the money by the screening layer, and credit-to-width tells you \

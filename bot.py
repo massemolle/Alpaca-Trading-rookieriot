@@ -84,6 +84,30 @@ def _fetch_daily_bars(client: AlpacaClient, ticker: str) -> pd.DataFrame:
     return pd.DataFrame(bars)
 
 
+def _day_context(bars_df: pd.DataFrame) -> dict:
+    """Previous session close and (once the feed prints today's in-progress
+    daily bar) today's open — the judge's live-tape anchors. The screening
+    signals are computed from DAILY bars, so on 2026-11-24/25 the judge
+    asserted "the trend pushes price away from the short strike" (c1081)
+    while the underlying was rallying intraday; it had no fact to see the
+    session. Missing columns/bars yield None — the facts are then simply
+    omitted and the judge reasons without them (never a blocked candidate).
+    """
+    out: dict = {"prev_close": None, "today_open": None}
+    if bars_df.empty or "timestamp" not in bars_df.columns or "close" not in bars_df.columns:
+        return out
+    today = datetime.now(timezone.utc).date().isoformat()
+    dates = bars_df["timestamp"].astype(str).str[:10]
+    prior = bars_df.loc[dates < today, "close"]
+    if not prior.empty and float(prior.iloc[-1]) > 0:
+        out["prev_close"] = float(prior.iloc[-1])
+    if "open" in bars_df.columns:
+        todays = bars_df.loc[dates == today, "open"]
+        if not todays.empty and float(todays.iloc[0]) > 0:
+            out["today_open"] = float(todays.iloc[0])
+    return out
+
+
 def _apply_trend_and_volatility_filters(
     client: AlpacaClient, signals: list
 ) -> tuple[list[tuple], list[dict]]:
@@ -196,7 +220,7 @@ def _apply_trend_and_volatility_filters(
                 continue
 
         realized_vol = black_scholes.realized_vol_from_bars(bars_df)
-        kept.append((sig, realized_vol))
+        kept.append((sig, realized_vol, _day_context(bars_df)))
     return kept, rejections
 
 
@@ -552,7 +576,7 @@ async def find_candidates(
     candidates = []
     gate_rejections: list[dict] = list(funnel_rejections)
     equity = float(account["equity"])
-    for sig, realized_vol in signals_with_vol:
+    for sig, realized_vol, day_ctx in signals_with_vol:
         try:
             spot = client.get_latest_quote(sig.ticker)
             spot_mid = two_sided_mid(spot)
@@ -656,6 +680,26 @@ async def find_candidates(
             {"fact_id": f"{tkr}_DTE", "value": (plan.expiration - today).days, "as_of": as_of,
              "source": "computed", "quality": "computed", "derivation": "expiration - today, in code"},
         ]
+        # Live-tape facts (2026-11-25): signals come from daily bars and are
+        # blind to the current session — on back-to-back gap-reversal days
+        # the judge argued trade direction from yesterday's trend while the
+        # tape ran the other way intraday (c1079/c1081/c1091, all stopped
+        # same-day). Omitted (not zeroed) when the bars don't support them.
+        prev_close = day_ctx.get("prev_close")
+        if prev_close:
+            facts.append(
+                {"fact_id": f"{tkr}_DAY_MOVE_PCT",
+                 "value": round((spot_mid / prev_close - 1) * 100, 2), "as_of": as_of,
+                 "source": "alpaca_stock_quote+daily_bars", "quality": "computed",
+                 "derivation": "(spot mid / previous session daily close - 1) x 100"})
+        today_open = day_ctx.get("today_open")
+        if today_open:
+            facts.append(
+                {"fact_id": f"{tkr}_FROM_OPEN_PCT",
+                 "value": round((spot_mid / today_open - 1) * 100, 2), "as_of": as_of,
+                 "source": "alpaca_stock_quote+daily_bars", "quality": "computed",
+                 "derivation": "(spot mid / today's session open - 1) x 100; "
+                               "present only once today's daily bar prints on the feed"})
         facts += _book_context_facts(tkr, as_of, open_spread_counts, existing_exposure)
         candidates.append({
             "ticker": sig.ticker,
