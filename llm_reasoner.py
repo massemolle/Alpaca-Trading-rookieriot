@@ -177,6 +177,39 @@ def _check_citations(candidates: list[dict], reasoning: str) -> None:
 
 REASONER_MODE = os.environ.get("REASONER_MODE", "openai")  # "openai" | "claude_code"
 
+# One retry of the GENERATION step only. Orders are never retried blindly
+# (PLAN.md order-lifecycle rule); a second `claude -p` call has no side
+# effects, and abstention remains the terminal fallback either way.
+REASONER_ATTEMPTS = 2
+
+
+def _parse_reasoner_text(text: str) -> dict:
+    """Parse the model's reply into the decision dict, conservatively.
+
+    Accepts code fences and prose before/after ONE valid JSON object (the
+    fallback scans to the first '{' and raw_decodes the balanced object from
+    there). It never repairs malformed JSON — a response we'd have to guess
+    at is a failed response (fail-safe = abstain, PLAN D10), and the recovery
+    for that is a fresh generation attempt, not a creative parse.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`\n")
+        if text.startswith("json"):
+            text = text[4:]
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        if start < 0:
+            raise
+        parsed, _end = json.JSONDecoder().raw_decode(text, start)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"reasoner reply is {type(parsed).__name__}, not an object")
+    assert isinstance(parsed.get("selected"), list)
+    assert isinstance(parsed.get("reasoning"), str)
+    return parsed
+
 
 def _decide_via_claude_code(candidates: list[dict], remaining_budget: int) -> dict:
     """Runs the decision through headless Claude Code (`claude -p`), which
@@ -200,24 +233,28 @@ def _decide_via_claude_code(candidates: list[dict], remaining_budget: int) -> di
     model = os.environ.get("REASONER_CLAUDE_MODEL")
     if model:
         cmd += ["--model", model]
-    with tempfile.TemporaryDirectory() as scratch:
-        # 180 -> 400s (2026-09-03, operator call): a 180s timeout ate the
-        # day's best decision window on a transiently slow call (cycle 71).
-        # Cycles run every 30 min and take ~1 min otherwise — plenty of room.
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=400, cwd=scratch,
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"claude -p failed: {result.stderr.strip()[:200]}")
-    text = result.stdout.strip()
-    if text.startswith("```"):
-        text = text.strip("`\n")
-        if text.startswith("json"):
-            text = text[4:]
-    parsed = json.loads(text)
-    assert isinstance(parsed.get("selected"), list)
-    assert isinstance(parsed.get("reasoning"), str)
-    return parsed
+    last_exc: Exception | None = None
+    for attempt in range(1, REASONER_ATTEMPTS + 1):
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                # 180 -> 400s (2026-09-03, operator call): a 180s timeout ate the
+                # day's best decision window on a transiently slow call (cycle 71).
+                # Cycles run every 30 min and take ~1 min otherwise; worst case
+                # with the one retry is ~13 min, still inside the cadence.
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=400, cwd=scratch,
+                )
+            if result.returncode != 0:
+                raise RuntimeError(f"claude -p failed: {result.stderr.strip()[:200]}")
+            return _parse_reasoner_text(result.stdout)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < REASONER_ATTEMPTS:
+                logger.warning(
+                    "Reasoner attempt %d/%d failed (%s), retrying once",
+                    attempt, REASONER_ATTEMPTS, exc,
+                )
+    raise last_exc
 
 
 def decide(candidates: list[dict], remaining_budget: int) -> dict:
@@ -264,9 +301,7 @@ def decide(candidates: list[dict], remaining_budget: int) -> dict:
         )
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-        assert isinstance(parsed.get("selected"), list)
-        assert isinstance(parsed.get("reasoning"), str)
+        parsed = _parse_reasoner_text(content)
         _check_citations(candidates, parsed["reasoning"])
         return parsed
     except Exception as exc:

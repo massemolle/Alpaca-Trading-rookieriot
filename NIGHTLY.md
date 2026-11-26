@@ -2,6 +2,65 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-26 evening (Thanksgiving — market closed, zero trading cycles.
+Theme: stop forfeiting decision windows to flaky generations — one bounded
+retry + a conservative salvage parser in `llm_reasoner.py`.)
+
+**The day.** No market, no evidence from the tape: all 16 cycles skipped on
+"market closed". The one open position (IWM 281/286 bear call, c1091) marks
+−$4 — nothing to manage. The account's −$3,002 daily P&L is the killswitch
+sleeve's unrealized marks (−$2,947 intraday per `sleeve_attribution`), not
+this sleeve, which carries −$15 intraday across its two IWM legs. Ablation
+recent-7d still ranks the judge the strong link: LLM −$22.5/close (12
+closes) vs shadow −$33.9 (138) vs random −$36.25 (20). Regret table: every
+candidate dropped over the last two trading days (c1080–c1091) lost — all
+abstentions were loss-avoiding; no new regret, no selection pattern.
+Yesterday's open risk #1 (does FROM_OPEN_PCT actually appear in live
+facts?) could not be checked — no market cycle ran; it moves to Friday's
+half-day.
+
+**The defect that IS in evidence.** Cycle 1090 (11-25 20:00Z) abstained on
+"LLM reasoning step failed (Expecting ',' delimiter: line 1 column 60)" —
+the model returned malformed JSON once and the whole 30-minute decision
+window was forfeited. Same class on 2026-11-13: three consecutive cycles
+abstained on nonzero `claude -p` exits (empty stderr — transient CLI/auth
+flake). Four forfeited windows in two weeks, all from single-shot
+generation with no second attempt. The abstain-on-failure fail-safe is
+correct; giving up after one try is just lost capacity.
+
+**Changes.**
+1. `llm_reasoner.py`: `_decide_via_claude_code` now makes up to 2 attempts
+   (`REASONER_ATTEMPTS = 2`) — a failed subprocess call OR an unparseable
+   reply triggers exactly one fresh generation; the second failure falls
+   through to the existing abstention. Generation-step retry only: no order
+   is involved (PLAN.md's never-blindly-retry rule is about orders), and
+   worst case 2×400s ≈ 13 min stays inside the 30-min cadence.
+2. New `_parse_reasoner_text`: fence-stripping as before, plus a
+   conservative salvage — if `json.loads` fails, `raw_decode` the first
+   balanced JSON object, tolerating prose before/after it. It never repairs
+   malformed JSON (the c1090 missing-comma class still raises → retry →
+   abstain); acting on a guessed parse would break the fail-safe. The
+   OpenAI path now uses the same parser (strictly more tolerant, same
+   schema asserts).
+3. New `tests/test_reasoner_parse_retry.py` (11 tests): parser accepts
+   fenced/prose-wrapped valid JSON, refuses to repair broken JSON, wrong
+   schema still raises; retry recovers from one bad reply, double failure
+   still abstains, success never triggers a second call. Chaos tests
+   (garbage → abstention) untouched and still green. Suite 355 → 366.
+
+**Watch tomorrow (half-day Friday).**
+- First market cycle's facts: do `{TKR}_DAY_MOVE_PCT` / `{TKR}_FROM_OPEN_PCT`
+  appear (yesterday's open risk #1)? If FROM_OPEN_PCT never prints, the
+  IEX in-progress-bar concern is confirmed.
+- Any "retrying once" warning in the log is the new path working; two in one
+  cycle followed by abstention is the old behavior and fine.
+- IWM 281/286 (c1091) — seventh bear call into the bounce; stop is the
+  mechanism, nothing to pre-empt.
+- Standing proposal (not allowed to touch): GLD fill asymmetry at the
+  limit-at-judged-credit order path in `executor_mcp.py` (2 fills / 5
+  no-fills, fills skew adverse) — needs a human call on repricing or
+  cancel-after-N-minutes.
+
 ## 2026-11-25 evening (reviewing trading day 2026-11-25 — the mirror of 11-19:
 huge gaps DOWN (SPY −2.19%, QQQ −3.3%, XLK −3.93%, GLD −2.29%) that rallied
 back all session; both fills were bear calls stopped within hours as the
