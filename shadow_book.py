@@ -196,7 +196,11 @@ def open_menu_book(
         logger.exception("menu book open failed (non-fatal)")
 
 
-def regret_summary(menu_rows: list[dict], capacity_cycles: set[int] | None = None) -> dict:
+def regret_summary(
+    menu_rows: list[dict],
+    capacity_cycles: set[int] | None = None,
+    halted_cycles: set[int] | None = None,
+) -> dict:
     """Pure regret computation for the evening context.
 
     outcome_usd per row: realized_pnl when closed; (credit − mark) × contracts
@@ -207,8 +211,17 @@ def regret_summary(menu_rows: list[dict], capacity_cycles: set[int] | None = Non
     real book sat at the concurrent cap. Their rows are flagged at_capacity
     and summed into the cap_window_* fields INSTEAD of dropped_* — the judge
     never saw those menus, so they price the cap, not the judge.
+
+    halted_cycles (D29, 2026-11-27): cycle ids screened menu-only while the
+    account-drawdown halt blocked entries. Same segregation, own fields
+    (halt_window_*): the judge never saw these either, and they price the
+    shared-account halt coupling — the standing sleeve-scoped-halt proposal's
+    cost — not the cap and not the judge. A cycle in both sets counts as
+    halted (the halt is the upstream suppression; see _skip_reasoning's
+    precedence).
     """
     caps = capacity_cycles or set()
+    halts = halted_cycles or set()
     table = []
     for r in menu_rows:
         credit = float(r["credit_received"])
@@ -228,22 +241,29 @@ def regret_summary(menu_rows: list[dict], capacity_cycles: set[int] | None = Non
             "expiration": str(r.get("expiration")),
             "status": r.get("status"),
             "taken_by_llm": bool(r.get("same_as_llm")),
-            "at_capacity": r.get("cycle_id") in caps,
+            "halted_entry": r.get("cycle_id") in halts,
+            "at_capacity": r.get("cycle_id") in caps and r.get("cycle_id") not in halts,
             "outcome_usd": round(outcome, 2) if outcome is not None else None,
         })
     dropped = [t for t in table
-               if not t["taken_by_llm"] and not t["at_capacity"] and t["outcome_usd"] is not None]
+               if not t["taken_by_llm"] and not t["at_capacity"] and not t["halted_entry"]
+               and t["outcome_usd"] is not None]
     taken = [t for t in table if t["taken_by_llm"] and t["outcome_usd"] is not None]
     dropped_pos = [t for t in dropped if t["outcome_usd"] > 0]
     cap_rows = [t for t in table if t["at_capacity"] and t["outcome_usd"] is not None]
     cap_pos = [t for t in cap_rows if t["outcome_usd"] > 0]
+    halt_rows = [t for t in table if t["halted_entry"] and t["outcome_usd"] is not None]
+    halt_pos = [t for t in halt_rows if t["outcome_usd"] > 0]
     return {
         "note": (
             "Every gate-approved candidate is virtually tracked (policy='menu'), picked or "
             "not. Regret = profitable candidates the LLM dropped. One lucky miss is noise — "
             "act on patterns, and read the journal's cited reasoning for those cycles first. "
             "cap_window_* rows (at_capacity) were screened menu-only while the book sat at "
-            "the concurrent cap — the judge never saw them; they price the cap, not the judge."
+            "the concurrent cap — the judge never saw them; they price the cap, not the judge. "
+            "halt_window_* rows (halted_entry) were screened menu-only while the account-"
+            "drawdown halt blocked entries (shared-account coupling, D29) — the judge never "
+            "saw them either; they price the halt, not the cap and not the judge."
         ),
         "rows": table,
         "taken_count": len(taken),
@@ -257,6 +277,10 @@ def regret_summary(menu_rows: list[dict], capacity_cycles: set[int] | None = Non
         "cap_window_total_usd": round(sum(t["outcome_usd"] for t in cap_rows), 2),
         "cap_window_positive_count": len(cap_pos),
         "cap_window_positive_total_usd": round(sum(t["outcome_usd"] for t in cap_pos), 2),
+        "halt_window_count": len(halt_rows),
+        "halt_window_total_usd": round(sum(t["outcome_usd"] for t in halt_rows), 2),
+        "halt_window_positive_count": len(halt_pos),
+        "halt_window_positive_total_usd": round(sum(t["outcome_usd"] for t in halt_pos), 2),
     }
 
 
@@ -378,9 +402,11 @@ def resolved_dropped_cycles(regret_rows: list[dict], cap: int = 40) -> list[int]
         if (
             cid is not None
             and not r.get("taken_by_llm")
-            # at_capacity rows (D26) have no drop reasoning to classify —
-            # their cycle's journal only holds the cap-skip message.
+            # at_capacity rows (D26) and halted_entry rows (D29) have no
+            # drop reasoning to classify — their cycle's journal only holds
+            # the cap-skip / halt-skip message; the judge never saw them.
             and not r.get("at_capacity")
+            and not r.get("halted_entry")
             and str(r.get("status") or "").startswith("closed")
             and (r.get("outcome_usd") or 0) > 0
             and cid not in out

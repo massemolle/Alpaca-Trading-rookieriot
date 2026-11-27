@@ -488,6 +488,7 @@ def _book_context_facts(
 async def find_candidates(
     mcp: AlpacaMCP, client: AlpacaClient, account: dict, open_count: int,
     capacity_waived: bool = False,
+    breaker_waived: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     universe = get_universe()
     # Funnel rejections (screening → trend/vol → sizing → risk gate) all land
@@ -633,9 +634,20 @@ async def find_candidates(
         # concentration, cluster, per-direction stack cap) still sees real
         # inputs. Nothing from a waived menu can execute: the order path in
         # run_cycle is only reachable when remaining_budget > 0.
+        #
+        # breaker_waived (D29, 2026-11-27) is the halt-probe analogue: the
+        # daily-loss breaker reads SHARED-account daily P&L, so on a
+        # drawdown-halted day (the only path that sets this flag) it is
+        # usually tripped by the same cross-sleeve marks that tripped the
+        # halt, and the probe would record zero rows on exactly the days it
+        # exists to measure. Zeroing the INPUT (risk_gate itself untouched,
+        # same technique as the cap waiver) makes the gate answer "would
+        # this be executable if the account-level halt coupling weren't
+        # tripped?" — every sleeve-local limit still sees real inputs, and
+        # nothing from this path can execute either.
         check = risk_gate.check_new_spread(
             equity=equity,
-            daily_pl_pct=float(account.get("daily_pl_pct") or 0.0),
+            daily_pl_pct=0.0 if breaker_waived else float(account.get("daily_pl_pct") or 0.0),
             open_spreads_count=0 if capacity_waived else open_count,
             max_loss=total_max_loss,
             expiration=plan.expiration,
@@ -762,6 +774,23 @@ def _skip_reasoning(
             f"Exits stay active."
         )
     return "No eligible candidates this cycle."
+
+
+def _drawdown_only_halt(prot: protections.ProtectionResult) -> bool:
+    """True when the protections halt is PURELY the account-drawdown check.
+
+    The drawdown halt measures shared-account equity, so another sleeve's
+    marks can bench this one (10-19, 11-23, 11-27) — that coupling is what
+    the D29 halt probe prices. A stop_streak reason is the sleeve's own
+    record and would halt even a sleeve-scoped bot, and the drawdown
+    fail-closed error ("drawdown check errored — ...") means we don't know
+    why we're halted — neither may be probed as coupling cost.
+    """
+    return (
+        not prot.allowed
+        and bool(prot.reasons)
+        and all(r.startswith("drawdown:") for r in prot.reasons)
+    )
 
 
 async def run_cycle() -> None:
@@ -1064,6 +1093,40 @@ async def run_cycle() -> None:
                 reasoning += (
                     f" Menu-only screening ran: {len(slim_candidates)} gate-approved "
                     f"candidate(s) tracked virtually to price the cap "
+                    f"(no LLM call, nothing executable)."
+                )
+
+        elif (
+            remaining_budget > 0 and market_open and options_level_ok
+            and not blackout and not close_window and _drawdown_only_halt(prot)
+        ):
+            # Menu-only screening during the account-drawdown halt (D29,
+            # 2026-11-27). The halt reads SHARED-account equity, so another
+            # sleeve's marks can bench this one for whole days (10-19,
+            # 11-23, 11-27 — zero menu rows each time), and the standing
+            # sleeve-scoped-halt proposal has no data behind it: the
+            # evidence engine went dark exactly when the coupling bit.
+            # Same doctrine as D26: suppress execution, not evidence. The
+            # funnel runs with the shared-account daily-loss input zeroed
+            # (breaker_waived; the halt and the breaker trip on the same
+            # cross-sleeve marks) and survivors are tracked virtually in
+            # the menu book. No LLM call, no shadow/random picks (the
+            # policy arms stay matched: the halt benched them too), and
+            # the execution path above is unreachable. Guarded to the
+            # PURE drawdown halt: stop_streak is the sleeve's own record
+            # and a sleeve-scoped bot would be benched by it just the
+            # same. decision stays "skipped"; evening_context tells these
+            # rows from cap-window rows by the journal's protections
+            # prefix, so they price the halt, not the cap or the judge.
+            menu_only = True
+            candidates, gate_rejections = await find_candidates(
+                mcp, client, account, len(open_spreads), breaker_waived=True,
+            )
+            slim_candidates = [{k: v for k, v in c.items() if k != "_plan"} for c in candidates]
+            if slim_candidates:
+                reasoning += (
+                    f" Menu-only screening ran: {len(slim_candidates)} gate-approved "
+                    f"candidate(s) tracked virtually to price the entry halt "
                     f"(no LLM call, nothing executable)."
                 )
 

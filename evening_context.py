@@ -178,6 +178,28 @@ def _market_day() -> dict:
         return {"error": f"market_day unavailable: {exc}"}
 
 
+# _skip_reasoning's exact protections prefix (bot.py): the halt-probe path
+# (D29) appends its menu note to this message, so a skipped cycle WITH
+# candidates whose reasoning starts this way was screened menu-only under
+# the account-drawdown halt, not at the concurrent cap.
+_HALT_SKIP_PREFIX = "No new positions — protections:"
+
+
+def _split_probe_cycles(rows: list[dict]) -> tuple[set, set]:
+    """Split menu-only ('skipped' + non-empty candidates) cycle ids by which
+    constraint their rows price: (capacity_cycles, halted_cycles). D26 cap
+    probes keep their historic classification (anything not halt-prefixed),
+    D29 halt probes are told apart by the journaled protections prefix."""
+    capacity: set = set()
+    halted: set = set()
+    for r in rows:
+        if str(r.get("reasoning") or "").startswith(_HALT_SKIP_PREFIX):
+            halted.add(r["id"])
+        else:
+            capacity.add(r["id"])
+    return capacity, halted
+
+
 def main() -> None:
     s = db._schema()
     with db._connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -209,15 +231,17 @@ def main() -> None:
             "menu_regret": shadow_book.regret_summary(
                 _q(cur, f"""select * from {s}.shadow_positions where policy='menu'
                             order by opened_at desc limit 100"""),
-                # D26: cycles screened menu-only at the concurrent cap. A
-                # 'skipped' decision with a non-empty candidates array is
-                # that path's unique signature — every other candidate-
-                # bearing path ends opened/abstained/gate_blocked/error.
-                capacity_cycles={
-                    r["id"] for r in _q(cur, f"""select id from {s}.cycles
+                # D26/D29: cycles screened menu-only (at the concurrent cap
+                # or under the drawdown halt). A 'skipped' decision with a
+                # non-empty candidates array is the probe paths' unique
+                # signature — every other candidate-bearing path ends
+                # opened/abstained/gate_blocked/error. The journaled
+                # reasoning prefix tells the two probes apart.
+                *_split_probe_cycles(
+                    _q(cur, f"""select id, reasoning from {s}.cycles
                         where decision = 'skipped'
                         and jsonb_array_length(candidates) > 0""")
-                },
+                ),
             ),
             "snapshots_recent": _q(cur, f"select * from {s}.account_snapshots order by snapshot_at desc limit 10"),
             "lab_summary": _q(cur, f"select * from {s}.lab_summary order by id"),

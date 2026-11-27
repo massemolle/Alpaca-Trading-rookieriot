@@ -442,3 +442,30 @@ credit = closer to the money, and steering derived exit numbers into
 credit-multiples so the rhetoric audit's `number [FACT_ID]` check (c601
 class) can't false-block them. Prompt + tests only; no gate, limit, or exit
 parameter changed.
+
+## D29 — The halt suppresses execution, not evidence (2026-11-27, nightly engineer)
+
+D26's doctrine, extended to the account-drawdown halt. The halt
+(`protections.global_halt`) measures SHARED-account equity, so another
+sleeve's marks can bench this sleeve for whole days — 10-19, 11-23, and
+11-27 each produced ZERO menu rows while the killswitch sleeve's marks set
+both ends of the drawdown fraction, leaving the standing sleeve-scoped-halt
+proposal (o) with no data behind it, in principle. Now a drawdown-halted
+market cycle runs menu-only screening: the full funnel executes with ONLY
+the shared-account daily-loss INPUT zeroed (`find_candidates(...,
+breaker_waived=True)` feeds `daily_pl_pct=0.0` to the gate — `risk_gate.py`
+itself is untouched, the same input-substitution technique as D26's cap
+waiver; the breaker and the halt trip on the same cross-sleeve marks, so
+without this the probe records nothing on exactly the days it exists to
+measure), and survivors are tracked virtually in the menu book. Guards:
+probe only when the halt is PURELY `drawdown:` (`bot._drawdown_only_halt` —
+a stop_streak is the sleeve's own record and would bench a sleeve-scoped bot
+too; the drawdown fail-closed error means the halt's cause is unknown), only
+with `remaining_budget > 0` (the cap check sees real inputs — this is not a
+cap waiver), no LLM call, no shadow/random picks (arms stay matched), order
+path unreachable, real entries still halted — no risk limit changed.
+`evening_context._split_probe_cycles` tells halt probes from D26 cap probes
+by `_skip_reasoning`'s journaled protections prefix and routes the rows into
+new `halt_window_*` fields, apart from both `cap_window_*` and the judge's
+`dropped_*` regret stats: they price the halt coupling, not the cap and not
+the judge. `credit_forecasts` records nothing on these cycles (menu_only).

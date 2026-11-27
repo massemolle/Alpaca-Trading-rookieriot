@@ -2,6 +2,95 @@
 
 One dated entry per evening session — what the evidence showed, what changed, what to watch. Written by the Fable engineer (see prompts/evening_engineer.md); kept only when the verification gate passes.
 
+## 2026-11-27 evening (reviewing trading day 2026-11-27 — half-day session,
+and the sleeve never got a decision: the drawdown halt (equity 4.7–6.0%
+below the 5-day peak 112,598) benched every market cycle while the tape
+gapped up 1.3–2.1% everywhere. Third full day the evidence engine went dark
+under the halt. Theme: D29 — the halt suppresses execution, not evidence.)
+
+**The day.** 13 cycles, zero judged. The half-day's seven market cycles
+(14:30–17:30Z) all skipped on `protections: drawdown` — equity 105.8–107.3k
+vs the 112,598 five-day peak, 4.7–6.0% below, double the 3% line — and the
+13:00/14:00Z and post-18:00Z cycles correctly read the holiday hours
+("market closed"; the 18:00Z early close was handled right). The sleeve's
+only action was the designed exit: IWM 281/286 bear call (id 113, the
+seventh bear call into this bounce) stopped −$32 at the 14:30Z open cycle,
+leaving the book FLAT. `sleeve_attribution` pins the account's −$6,129 day
+where the shared-account rule says to look first: killswitch −$6,336
+intraday marks on its IWM/QQQ puts bleeding into the gap-up (SPY +1.69%,
+QQQ +2.66%, IWM +1.86%, XLK +2.82%, GLD +2.10%); credit sleeve −$32
+realized, zero open risk. The 5-day peak did NOT age out as 11-24's entry
+predicted — the window's max refreshed to 112,598 — so the bench continues
+into Monday unless equity recovers ~$6.5k, with the credit sleeve flat and
+in good standing throughout.
+
+**analyze-regret.** Step 2, ablation recent_7d (regime-fair): llm_real
+−$36.60/close (n=10) vs shadow −$50.83 (n=101) vs random −$48.33 (n=15) →
+LLM ≥ rule ≥ random, ordering healthy, judge still the strong link; the
+per-close worsening vs yesterday (−$22.5) is 11-16's wins aging out of the
+window while 11-25's three stops stay in. Step 3, regret: zero judged
+cycles, so nothing new to classify; the 11-25 drop set RESOLVED and the
+verdict repeats 11-23 — every dropped row from c1079–c1091 closed_stop
+negative (−$34.5 to −$136.5), so all of the stacking/counter-signal
+abstentions were loss-avoiding, class (a). The last profitable drops remain
+11-24's four small winners (+$9.5 to +$46) whose cited reasoning (stacking
+discipline, 0.235-strength near-noise) was sound. No (b)/(c) pattern; no
+selector or prompt change warranted. Watch items from 11-25/11-26 (first
+FROM_OPEN_PCT journal citation, retry live verdict, one-row multi-pick
+cycle) all carry forward unverified — no judged cycle has run since the
+code landed.
+
+**The finding, and the change (D29).** Today is the third full day (10-19,
+11-23, 11-27) the sleeve was benched by the account-level drawdown halt
+while holding little or no risk of its own — and all three days produced
+ZERO menu rows, because a halted cycle skipped screening entirely. The
+sleeve-scoped-halt proposal (o) has been argued with rhetoric for five
+weeks because its cost is unmeasurable in principle: we cannot say what the
+sleeve would have done, approved, or earned. D26 solved the identical
+problem for the concurrent cap. Tonight extends that doctrine: a PURELY
+drawdown-halted market cycle now runs menu-only screening — full funnel,
+survivors tracked virtually in the menu book, no LLM call, no policy-arm
+picks, order path unreachable, decision stays "skipped". Two guards keep
+the counterfactual honest: (1) `bot._drawdown_only_halt` probes only when
+every halt reason is `drawdown:` — a stop-streak is the sleeve's own record
+and would bench a sleeve-scoped bot too, and the fail-closed error means we
+don't know why we're halted; (2) the gate runs with the shared-account
+daily-loss INPUT zeroed (`breaker_waived=True` feeds `daily_pl_pct=0.0`;
+`risk_gate.py` untouched, same input-substitution technique as D26's cap
+waiver) because the breaker trips on the same cross-sleeve marks as the
+halt — without this, today's −5.5% account day would have gate-rejected
+every probe row and the feature would measure nothing exactly when it
+matters. Every sleeve-local limit (DTE, per-spread loss, concentration,
+cluster, D25 stack cap, per-underlying protections, and the cap itself —
+probe requires budget > 0) still sees real inputs.
+`evening_context._split_probe_cycles` separates these rows from D26's cap
+rows by the journaled protections prefix into new `halt_window_*` regret
+fields, and `resolved_dropped_cycles` never asks for their (nonexistent)
+drop reasoning. Tests: new `tests/test_menu_only_halted.py` (15 tests:
+breaker waiver is breaker-only and not a cap waiver, the probe-guard truth
+table including the fail-closed case, halt/cap/dropped segregation, the
+both-sets precedence, the prefix pin against `_skip_reasoning` drift);
+suite 366 → 381 green.
+
+**What to watch.** (1) Next drawdown-halted market cycle should journal
+"Menu-only screening ran: N ... to price the entry halt" and menu rows
+should appear with `halted_entry: true` in the evening context — Monday
+likely qualifies if the bench holds. (2) The halt_window_* totals are THE
+number proposal (o) has been missing: after a week of halted-day rows, the
+team can read what the coupling actually costs (or saves — a halt that
+dodges losers is a point FOR account-level halts; marks-not-fills caveat
+applies as ever). (3) First judged cycle still owes three live verdicts:
+FROM_OPEN_PCT citation, the reasoner retry, one-row multi-pick. (4) The
+flat book means Monday's first judged slate (if equity recovers) is a
+fresh-book, post-bounce read — the 11-19/11-24 p_win soak continues there.
+
+**Proposals (standing, team's call).** (o) sleeve-scoped halts — unchanged
+in substance, but D29 starts pricing it; decide after the halt_window data
+accumulates. GLD executor-side repriced retry (2 fills / 5 no-fills, fills
+skew adverse). Bars cache refresh past 2026-08-29 (this bounce regime is
+still invisible to the lab). The 5 expiry-unbooked llm_real rows (≤$349)
+still bias lifetime ablation against the judge.
+
 ## 2026-11-26 evening (Thanksgiving — market closed, zero trading cycles.
 Theme: stop forfeiting decision windows to flaky generations — one bounded
 retry + a conservative salvage parser in `llm_reasoner.py`.)
